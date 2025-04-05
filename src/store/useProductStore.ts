@@ -173,6 +173,7 @@ export const useProductStore = create<ProductState>((set, get) => ({
       console.log(`Operazione: ${isAddition ? 'CARICO' : 'SCARICO'}`);
       console.log(`Barcode: ${barcode}`);
       console.log(`Quantità da ${isAddition ? 'aggiungere' : 'sottrarre'}: ${quantity}`);
+      console.log(`isAddition (true=carico, false=scarico): ${isAddition}`);
 
       // Validazione dell'input
       if (!barcode || barcode.trim() === '') {
@@ -235,6 +236,8 @@ export const useProductStore = create<ProductState>((set, get) => ({
       }
       
       const now = new Date();
+      console.log(`Aggiornamento sul database: quantity=${newQuantity}, docId=${docId}`);
+      
       await updateDoc(productRef, {
         quantity: newQuantity,
         updatedAt: now

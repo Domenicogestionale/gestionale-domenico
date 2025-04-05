@@ -73,3 +73,12 @@ button:focus-visible {
     background-color: #f9f9f9;
   }
 }
+
+@keyframes progress {
+  0% {
+    width: 0%;
+  }
+  100% {
+    width: 100%;
+  }
+}

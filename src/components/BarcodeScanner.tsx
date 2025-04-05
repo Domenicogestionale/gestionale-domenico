@@ -15,6 +15,7 @@ const BarcodeScanner = ({ onProductFound }: BarcodeScannerProps) => {
   const [errorMessage, setErrorMessage] = useState<string>('');
   const [isVolumeKeyEnabled, setIsVolumeKeyEnabled] = useState(false);
   const [isScanCooldown, setIsScanCooldown] = useState(false);
+  const [remainingCooldown, setRemainingCooldown] = useState(0);
   const { getProductByBarcode } = useProductStore();
 
   useEffect(() => {
@@ -75,7 +76,23 @@ const BarcodeScanner = ({ onProductFound }: BarcodeScannerProps) => {
       
       // Attiva cooldown per prevenire scansioni multiple rapidamente
       setIsScanCooldown(true);
+      
+      // Aggiorniamo lastBarcode anche se è lo stesso di prima
+      // In questo modo permettiamo scansioni ripetute dello stesso codice
+      // (la quantità sarà controllata nel componente padre)
       setLastBarcode(decodedText);
+      
+      // Inizializza il countdown visivo
+      setRemainingCooldown(3);
+      const countdownInterval = setInterval(() => {
+        setRemainingCooldown(prev => {
+          if (prev <= 1) {
+            clearInterval(countdownInterval);
+            return 0;
+          }
+          return prev - 1;
+        });
+      }, 1000);
       
       try {
         console.log(`Barcode scansionato: ${decodedText}`);
@@ -98,7 +115,7 @@ const BarcodeScanner = ({ onProductFound }: BarcodeScannerProps) => {
         setTimeout(() => {
           setIsScanCooldown(false);
           console.log('[DEBUG] Cooldown scansione terminato, pronto per nuova scansione');
-        }, 1500); // Ridotto a 1.5 secondi per migliorare la reattività
+        }, 3000); // Aumentato a 3 secondi per evitare scansioni accidentali ripetute
       } catch (error) {
         console.error('[DEBUG] Errore durante la ricerca del prodotto:', error);
         setErrorMessage('Errore durante la ricerca del prodotto');
@@ -155,6 +172,7 @@ const BarcodeScanner = ({ onProductFound }: BarcodeScannerProps) => {
           <button
             onClick={stopScanner}
             className="bg-red-500 hover:bg-red-700 text-white font-bold py-2 px-4 rounded"
+            disabled={isScanCooldown}
           >
             Ferma Scanner
           </button>
@@ -167,6 +185,7 @@ const BarcodeScanner = ({ onProductFound }: BarcodeScannerProps) => {
               ? 'bg-purple-600 hover:bg-purple-700'
               : 'bg-gray-500 hover:bg-gray-600'
           }`}
+          disabled={isScanCooldown}
         >
           {isVolumeKeyEnabled ? 'Disabilita Tasti Volume' : 'Abilita Tasti Volume'}
         </button>
@@ -179,8 +198,12 @@ const BarcodeScanner = ({ onProductFound }: BarcodeScannerProps) => {
       )}
       
       {isScanCooldown && (
-        <div className="bg-blue-100 border-l-4 border-blue-500 p-3 mb-4 text-sm text-blue-900">
-          <p>Elaborazione in corso... Attendi prima di scansionare un altro prodotto.</p>
+        <div className="bg-blue-100 border-l-4 border-blue-500 p-3 mb-4 text-sm text-blue-900 animate-pulse">
+          <p className="font-bold">Elaborazione in corso...</p>
+          <p>Attendi {remainingCooldown} secondi prima di scansionare un altro prodotto.</p>
+          <div className="w-full bg-gray-200 rounded-full h-2.5 mt-2">
+            <div className="bg-blue-600 h-2.5 rounded-full animate-[progress_3s_ease-in-out]"></div>
+          </div>
         </div>
       )}
       

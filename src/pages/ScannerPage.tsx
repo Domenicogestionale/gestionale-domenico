@@ -34,19 +34,18 @@ const ScannerPage = () => {
     // Rimuovi il prodotto attualmente visualizzato quando cambia la modalità
     setProductFound(null);
     setBarcode('');
-    // NON rimuovere l'ultima operazione quando cambi modalità
-    // setLastOperation(null);
     
     // Attiva il feedback visivo per il cambio modalità
     setModeFlash(true);
     setTimeout(() => setModeFlash(false), 500);
     
-    console.log(`Modalità cambiata a: ${newMode}, quantità corrente: ${quantityToUpdate}`);
+    console.log(`[DEBUG] Modalità cambiata a: ${newMode}, quantità corrente: ${quantityToUpdate}`);
   };
 
   // Gestisci la scansione di un prodotto tramite lo scanner
   const handleProductScanned = async (product: Product | null, scannedBarcode: string) => {
     console.log('[DEBUG] handleProductScanned chiamato con:', product, scannedBarcode);
+    console.log('[DEBUG] Modalità corrente:', operationMode);
     
     if (isProcessing) {
       console.log('[DEBUG] Operazione già in corso, ignoro scansione');
@@ -68,7 +67,7 @@ const ScannerPage = () => {
     if (product) {
       // Usa la quantità corrente in questo momento, non quella memorizzata in precedenza
       const currentQuantity = quantityToUpdate;
-      console.log(`[DEBUG] Quantità corrente da usare: ${currentQuantity}`);
+      console.log(`[DEBUG] Quantità corrente da usare: ${currentQuantity}, Modalità: ${operationMode}`);
 
       if (operationMode === 'neutral') {
         // In modalità neutrale, solo visualizza il prodotto
@@ -99,22 +98,23 @@ const ScannerPage = () => {
       if (product) {
         // Usa la quantità corrente in questo momento, non quella memorizzata in precedenza
         const currentQuantity = quantityToUpdate;
+        console.log(`[DEBUG] handleScan - Quantità: ${currentQuantity}, Modalità: ${operationMode}`);
 
         if (operationMode === 'neutral') {
           // In modalità neutrale, solo visualizza il prodotto
-          console.log('Modalità neutrale: visualizzazione prodotto', product);
+          console.log('[DEBUG] Modalità neutrale: visualizzazione prodotto', product);
         } else if (operationMode === 'carico') {
           // In modalità carico, aggiungi automaticamente la quantità
-          console.log(`Caricando ${currentQuantity} unità del prodotto ${product.name}`);
+          console.log(`[DEBUG] Caricando ${currentQuantity} unità del prodotto ${product.name}`);
           await handleProductUpdate(product, currentQuantity, 'carico');
         } else if (operationMode === 'scarico') {
           // In modalità scarico, sottrai automaticamente la quantità
-          console.log(`Scaricando ${currentQuantity} unità del prodotto ${product.name}`);
+          console.log(`[DEBUG] Scaricando ${currentQuantity} unità del prodotto ${product.name}`);
           await handleProductUpdate(product, currentQuantity, 'scarico');
         }
       }
     } catch (error) {
-      console.error('Errore nella scansione:', error);
+      console.error('[DEBUG] Errore nella scansione:', error);
       setProductFound(null);
     } finally {
       setIsProcessing(false);
@@ -130,7 +130,7 @@ const ScannerPage = () => {
       // Assicuriamoci che la quantità sia un numero valido, convertendo esplicitamente
       const safeQuantity = Math.max(1, Math.floor(Number(quantity)));
       
-      console.log(`Aggiornamento prodotto: ${type}`);
+      console.log(`[DEBUG] handleProductUpdate - Tipo: ${type}, Quantità: ${safeQuantity}`);
       console.log(`- Nome: ${product.name}`);
       console.log(`- Barcode: ${product.barcode}`);
       console.log(`- Quantità attuale: ${product.quantity}`);
@@ -139,24 +139,27 @@ const ScannerPage = () => {
       
       // Utilizzando l'API esistente updateProductQuantity
       const isAddition = type === 'carico'; // true per carico, false per scarico
+      console.log(`[DEBUG] isAddition = ${isAddition}, tipo = '${type}'`);
       
-      await updateProductQuantity(
-        product.barcode,
-        safeQuantity,
-        isAddition
-      );
+      // Per la modalità scarico, verifica esplicitamente che ci sia quantità sufficiente
+      if (!isAddition && product.quantity < safeQuantity) {
+        console.warn(`[DEBUG] Quantità insufficiente per lo scarico: disponibile ${product.quantity}, richiesto ${safeQuantity}`);
+      }
+      
+      // Chiamata esplicita all'API specificando chiaramente il terzo parametro
+      if (type === 'carico') {
+        await updateProductQuantity(product.barcode, safeQuantity, true);
+      } else {
+        await updateProductQuantity(product.barcode, safeQuantity, false);
+      }
       
       // Ottieni il prodotto aggiornato per avere la quantità corretta
       const updatedProduct = await getProductByBarcode(product.barcode);
-      
-      // Non resettare il prodotto trovato e il barcode qui,
-      // altrimenti non possiamo scansionare lo stesso prodotto più volte
-      // setProductFound(null); 
-      // setBarcode('');
+      console.log(`[DEBUG] Prodotto dopo aggiornamento:`, updatedProduct);
       
       // Salva l'ultima operazione per il feedback
       if (updatedProduct) {
-        console.log(`Operazione completata: ${updatedProduct.name} ora ha ${updatedProduct.quantity} unità`);
+        console.log(`[DEBUG] Operazione completata: ${updatedProduct.name} ora ha ${updatedProduct.quantity} unità`);
         setLastOperation({
           type,
           productName: product.name,
@@ -166,9 +169,11 @@ const ScannerPage = () => {
         
         // Aggiorna il prodotto visualizzato con i dati aggiornati
         setProductFound(updatedProduct);
+      } else {
+        console.error('[DEBUG] Impossibile recuperare il prodotto aggiornato');
       }
     } catch (error) {
-      console.error('Errore nell\'aggiornamento:', error);
+      console.error('[DEBUG] Errore nell\'aggiornamento:', error);
     } finally {
       setIsProcessing(false);
     }
@@ -295,9 +300,9 @@ const ScannerPage = () => {
             </button>
           </div>
           <p className="text-sm text-gray-600 mt-2">
-            Nota: Se non modifichi questa quantità, ogni scansione {operationMode === 'carico' ? 'caricherà' : 'scaricherà'} 
+            Nota: Ogni scansione {operationMode === 'carico' ? 'caricherà' : 'scaricherà'} 
             <strong className="mx-1">{quantityToUpdate}</strong> 
-            unità del prodotto scansionato.
+            unità del prodotto scansionato. Puoi modificare questa quantità in qualsiasi momento.
           </p>
         </div>
       )}
@@ -376,8 +381,8 @@ const ScannerPage = () => {
               }`}>{productFound.quantity}</span>
             </p>
             
-            {/* Solo in modalità neutrale mostra i pulsanti di carico/scarico */}
-            {operationMode === 'neutral' && (
+            {/* Opzioni per il prodotto trovato */}
+            {operationMode === 'neutral' ? (
               <div className="mt-4 flex space-x-2">
                 <button
                   onClick={() => handleProductUpdate(productFound, quantityToUpdate, 'carico')}
@@ -392,6 +397,28 @@ const ScannerPage = () => {
                 >
                   Scarica
                 </button>
+              </div>
+            ) : (
+              // In modalità carico o scarico aggiungiamo un pulsante per ripetere l'operazione
+              <div className="mt-4">
+                <button
+                  onClick={() => handleProductUpdate(productFound, quantityToUpdate, operationMode as 'carico' | 'scarico')}
+                  className={`w-full px-4 py-2 font-bold text-white rounded-lg ${
+                    operationMode === 'carico' 
+                      ? 'bg-green-500 hover:bg-green-600' 
+                      : (productFound.quantity <= 0 
+                          ? 'bg-gray-400 cursor-not-allowed' 
+                          : 'bg-red-500 hover:bg-red-600')
+                  }`}
+                  disabled={operationMode === 'scarico' && productFound.quantity <= 0}
+                >
+                  {operationMode === 'carico' 
+                    ? `Carica ${quantityToUpdate} unità` 
+                    : `Scarica ${quantityToUpdate} unità`}
+                </button>
+                <p className="text-sm text-gray-600 mt-2 text-center">
+                  Puoi modificare la quantità sopra e ripetere l'operazione.
+                </p>
               </div>
             )}
           </div>
