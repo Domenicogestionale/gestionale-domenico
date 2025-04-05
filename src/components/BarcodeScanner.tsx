@@ -1,7 +1,5 @@
-import { useState, useRef, useEffect, useCallback } from 'react';
+import { useEffect, useState, useRef, useCallback } from 'react';
 import { Html5Qrcode } from 'html5-qrcode';
-import { useProductStore } from '../store/useProductStore';
-import { Product } from '../types/Product';
 
 interface BarcodeScannerProps {
   onProductFound: (barcode: string) => void;
@@ -14,11 +12,10 @@ export const BarcodeScanner: React.FC<BarcodeScannerProps> = ({ onProductFound, 
   const [lastScannedBarcode, setLastScannedBarcode] = useState<string | null>(null);
   const [lastScanTime, setLastScanTime] = useState<number>(0);
   const [cooldownProgress, setCooldownProgress] = useState(0);
+  const [volumeButtonsEnabled, setVolumeButtonsEnabled] = useState(false);
   const cooldownRef = useRef<NodeJS.Timeout | null>(null);
   const progressRef = useRef<NodeJS.Timeout | null>(null);
   const scannerRef = useRef<Html5Qrcode | null>(null);
-  const scannerContainerRef = useRef<HTMLDivElement>(null);
-  const { getProductByBarcode } = useProductStore();
 
   // Costanti per il cooldown
   const COOLDOWN_DURATION = 3000; // 3 secondi
@@ -26,22 +23,21 @@ export const BarcodeScanner: React.FC<BarcodeScannerProps> = ({ onProductFound, 
 
   const startScanner = async () => {
     try {
-      if (!scannerContainerRef.current) return;
+      if (!scannerRef.current) {
+        scannerRef.current = new Html5Qrcode("scanner-container");
+      }
 
-      const scanner = new Html5Qrcode("scanner-container");
-      scannerRef.current = scanner;
-
-      await scanner.start(
+      await scannerRef.current.start(
         { facingMode: "environment" },
         {
           fps: 10,
-          qrbox: { width: 250, height: 250 }
+          qrbox: { width: 250, height: 250 },
         },
         (decodedText) => {
           handleScanSuccess(decodedText);
         },
         (errorMessage) => {
-          console.error('Errore scansione:', errorMessage);
+          console.log(errorMessage);
         }
       );
 
@@ -49,7 +45,7 @@ export const BarcodeScanner: React.FC<BarcodeScannerProps> = ({ onProductFound, 
       setError(null);
     } catch (err) {
       console.error('Errore avvio scanner:', err);
-      setError('Impossibile avviare lo scanner. Verifica i permessi della fotocamera.');
+      setError('Errore fotocamera: ' + (err as Error).message);
       setScanning(false);
     }
   };
@@ -58,9 +54,8 @@ export const BarcodeScanner: React.FC<BarcodeScannerProps> = ({ onProductFound, 
     try {
       if (scannerRef.current) {
         await scannerRef.current.stop();
-        scannerRef.current = null;
+        setScanning(false);
       }
-      setScanning(false);
     } catch (err) {
       console.error('Errore stop scanner:', err);
     }
@@ -91,15 +86,31 @@ export const BarcodeScanner: React.FC<BarcodeScannerProps> = ({ onProductFound, 
     }
   };
 
-  useEffect(() => {
-    return () => {
-      if (scannerRef.current) {
-        scannerRef.current.stop();
+  const handleVolumeButton = useCallback((event: KeyboardEvent) => {
+    if (!volumeButtonsEnabled || isProcessing) return;
+
+    const now = Date.now();
+    const timeSinceLastScan = now - lastScanTime;
+
+    if (timeSinceLastScan >= COOLDOWN_DURATION) {
+      if (event.key === 'ArrowUp' || event.key === 'ArrowDown') {
+        handleScanSuccess('VOLUME_BUTTON_' + Date.now());
       }
+    }
+  }, [volumeButtonsEnabled, isProcessing, lastScanTime]);
+
+  useEffect(() => {
+    if (volumeButtonsEnabled) {
+      window.addEventListener('keydown', handleVolumeButton);
+    }
+    
+    return () => {
+      window.removeEventListener('keydown', handleVolumeButton);
       if (cooldownRef.current) clearTimeout(cooldownRef.current);
       if (progressRef.current) clearInterval(progressRef.current);
+      stopScanner();
     };
-  }, []);
+  }, [handleVolumeButton, volumeButtonsEnabled]);
 
   return (
     <div className="relative">
@@ -129,46 +140,48 @@ export const BarcodeScanner: React.FC<BarcodeScannerProps> = ({ onProductFound, 
             />
           </div>
         )}
-        
-        <div className="flex flex-col sm:flex-row items-center gap-2">
+
+        <div className="flex flex-col sm:flex-row items-center gap-2 mb-4">
           <button
             onClick={() => scanning ? stopScanner() : startScanner()}
             disabled={cooldownProgress > 0 || isProcessing}
             className={`px-4 py-2 rounded-lg font-bold text-white ${
-              scanning || cooldownProgress > 0 || isProcessing
+              cooldownProgress > 0 || isProcessing
                 ? 'bg-gray-400 cursor-not-allowed'
                 : 'bg-blue-500 hover:bg-blue-600'
             }`}
           >
             {scanning ? 'Stop Scanner' : 'Avvia Scanner'}
           </button>
-          
-          <p className="text-xs text-gray-500">
-            {scanning 
-              ? 'Posiziona il codice a barre davanti alla fotocamera...' 
-              : cooldownProgress > 0
-                ? 'Attendi prima della prossima scansione...'
-                : 'Clicca su Avvia Scanner per iniziare'}
-          </p>
+
+          <button
+            onClick={() => setVolumeButtonsEnabled(!volumeButtonsEnabled)}
+            className={`px-4 py-2 rounded-lg font-bold ${
+              volumeButtonsEnabled
+                ? 'bg-gray-700 text-white'
+                : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
+            }`}
+          >
+            Abilita Tasti Volume
+          </button>
         </div>
 
         <div 
-          id="scanner-container"
-          ref={scannerContainerRef}
-          className={`mt-4 w-full aspect-square rounded-lg overflow-hidden ${
+          id="scanner-container" 
+          className={`w-full aspect-video bg-black rounded-lg overflow-hidden ${
             scanning ? 'block' : 'hidden'
           }`}
         />
         
-        {lastScannedBarcode && (
-          <div className="mt-2 p-2 bg-gray-100 rounded text-sm font-mono">
-            {lastScannedBarcode}
-          </div>
-        )}
-        
         {error && (
           <div className="mt-2 p-2 bg-red-50 text-red-600 rounded text-sm">
             {error}
+          </div>
+        )}
+        
+        {lastScannedBarcode && (
+          <div className="mt-2 p-2 bg-gray-100 rounded text-sm font-mono">
+            {lastScannedBarcode}
           </div>
         )}
       </div>
