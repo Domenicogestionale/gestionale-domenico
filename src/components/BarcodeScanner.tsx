@@ -1,9 +1,7 @@
-import { useEffect, useState, useRef, useCallback } from 'react';
+import { useState, useRef, useEffect, useCallback } from 'react';
 import { Html5Qrcode } from 'html5-qrcode';
 import { useProductStore } from '../store/useProductStore';
 import { Product } from '../types/Product';
-
-let html5QrCode: Html5Qrcode;
 
 interface BarcodeScannerProps {
   onProductFound: (barcode: string) => void;
@@ -18,76 +16,90 @@ export const BarcodeScanner: React.FC<BarcodeScannerProps> = ({ onProductFound, 
   const [cooldownProgress, setCooldownProgress] = useState(0);
   const cooldownRef = useRef<NodeJS.Timeout | null>(null);
   const progressRef = useRef<NodeJS.Timeout | null>(null);
+  const scannerRef = useRef<Html5Qrcode | null>(null);
+  const scannerContainerRef = useRef<HTMLDivElement>(null);
   const { getProductByBarcode } = useProductStore();
 
   // Costanti per il cooldown
   const COOLDOWN_DURATION = 3000; // 3 secondi
   const PROGRESS_INTERVAL = 50; // Aggiorna la barra di progresso ogni 50ms
 
-  const handleKeyPress = useCallback((event: KeyboardEvent) => {
-    // Ignora se siamo in cooldown o in processing
-    if (isProcessing) return;
+  const startScanner = async () => {
+    try {
+      if (!scannerContainerRef.current) return;
 
-    const now = Date.now();
-    const timeSinceLastScan = now - lastScanTime;
+      const scanner = new Html5Qrcode("scanner-container");
+      scannerRef.current = scanner;
 
-    // Se è passato abbastanza tempo dal'ultima scansione
-    if (timeSinceLastScan >= COOLDOWN_DURATION) {
+      await scanner.start(
+        { facingMode: "environment" },
+        {
+          fps: 10,
+          qrbox: { width: 250, height: 250 }
+        },
+        (decodedText) => {
+          handleScanSuccess(decodedText);
+        },
+        (errorMessage) => {
+          console.error('Errore scansione:', errorMessage);
+        }
+      );
+
       setScanning(true);
       setError(null);
+    } catch (err) {
+      console.error('Errore avvio scanner:', err);
+      setError('Impossibile avviare lo scanner. Verifica i permessi della fotocamera.');
+      setScanning(false);
     }
-  }, [isProcessing, lastScanTime]);
+  };
 
-  const handleKeyUp = useCallback((event: KeyboardEvent) => {
-    if (!scanning || isProcessing) return;
+  const stopScanner = async () => {
+    try {
+      if (scannerRef.current) {
+        await scannerRef.current.stop();
+        scannerRef.current = null;
+      }
+      setScanning(false);
+    } catch (err) {
+      console.error('Errore stop scanner:', err);
+    }
+  };
 
+  const handleScanSuccess = (barcode: string) => {
     const now = Date.now();
     const timeSinceLastScan = now - lastScanTime;
 
-    // Se è passato abbastanza tempo dal'ultima scansione
     if (timeSinceLastScan >= COOLDOWN_DURATION) {
-      const barcode = event.key;
+      console.log('Barcode scansionato:', barcode);
+      onProductFound(barcode);
+      setLastScanTime(now);
+      setLastScannedBarcode(barcode);
       
-      // Se il tasto premuto è Enter, processa il barcode
-      if (barcode === 'Enter') {
-        if (lastScannedBarcode) {
-          console.log('Barcode scansionato:', lastScannedBarcode);
-          onProductFound(lastScannedBarcode);
-          setLastScanTime(now);
-          setLastScannedBarcode(null);
-          setScanning(false);
-          
-          // Avvia il cooldown
-          setCooldownProgress(100);
-          if (cooldownRef.current) clearTimeout(cooldownRef.current);
-          if (progressRef.current) clearInterval(progressRef.current);
-          
-          cooldownRef.current = setTimeout(() => {
-            setCooldownProgress(0);
-          }, COOLDOWN_DURATION);
-          
-          progressRef.current = setInterval(() => {
-            setCooldownProgress(prev => Math.max(0, prev - (100 / (COOLDOWN_DURATION / PROGRESS_INTERVAL))));
-          }, PROGRESS_INTERVAL);
-        }
-      } else {
-        // Aggiungi il carattere al barcode
-        setLastScannedBarcode(prev => (prev || '') + barcode);
-      }
+      // Avvia il cooldown
+      setCooldownProgress(100);
+      if (cooldownRef.current) clearTimeout(cooldownRef.current);
+      if (progressRef.current) clearInterval(progressRef.current);
+      
+      cooldownRef.current = setTimeout(() => {
+        setCooldownProgress(0);
+      }, COOLDOWN_DURATION);
+      
+      progressRef.current = setInterval(() => {
+        setCooldownProgress(prev => Math.max(0, prev - (100 / (COOLDOWN_DURATION / PROGRESS_INTERVAL))));
+      }, PROGRESS_INTERVAL);
     }
-  }, [scanning, isProcessing, lastScannedBarcode, lastScanTime, onProductFound]);
+  };
 
   useEffect(() => {
-    window.addEventListener('keydown', handleKeyPress);
-    window.addEventListener('keyup', handleKeyUp);
-    
     return () => {
-      window.removeEventListener('keydown', handleKeyPress);
-      window.removeEventListener('keyup', handleKeyUp);
+      if (scannerRef.current) {
+        scannerRef.current.stop();
+      }
       if (cooldownRef.current) clearTimeout(cooldownRef.current);
       if (progressRef.current) clearInterval(progressRef.current);
     };
-  }, [handleKeyPress, handleKeyUp]);
+  }, []);
 
   return (
     <div className="relative">
@@ -120,25 +132,33 @@ export const BarcodeScanner: React.FC<BarcodeScannerProps> = ({ onProductFound, 
         
         <div className="flex flex-col sm:flex-row items-center gap-2">
           <button
-            onClick={() => setScanning(true)}
-            disabled={scanning || cooldownProgress > 0 || isProcessing}
+            onClick={() => scanning ? stopScanner() : startScanner()}
+            disabled={cooldownProgress > 0 || isProcessing}
             className={`px-4 py-2 rounded-lg font-bold text-white ${
               scanning || cooldownProgress > 0 || isProcessing
                 ? 'bg-gray-400 cursor-not-allowed'
                 : 'bg-blue-500 hover:bg-blue-600'
             }`}
           >
-            Avvia Scanner
+            {scanning ? 'Stop Scanner' : 'Avvia Scanner'}
           </button>
           
           <p className="text-xs text-gray-500">
             {scanning 
-              ? 'Posiziona il codice a barre davanti allo scanner...' 
+              ? 'Posiziona il codice a barre davanti alla fotocamera...' 
               : cooldownProgress > 0
                 ? 'Attendi prima della prossima scansione...'
-                : 'Premi un tasto per iniziare la scansione'}
+                : 'Clicca su Avvia Scanner per iniziare'}
           </p>
         </div>
+
+        <div 
+          id="scanner-container"
+          ref={scannerContainerRef}
+          className={`mt-4 w-full aspect-square rounded-lg overflow-hidden ${
+            scanning ? 'block' : 'hidden'
+          }`}
+        />
         
         {lastScannedBarcode && (
           <div className="mt-2 p-2 bg-gray-100 rounded text-sm font-mono">
