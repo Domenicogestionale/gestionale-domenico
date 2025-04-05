@@ -82,10 +82,28 @@ export const useProductStore = create<ProductState>((set, get) => ({
 
   getProductByBarcode: async (barcode: string) => {
     try {
+      if (!barcode || barcode.trim() === '') {
+        console.log('[DEBUG] Barcode vuoto o non valido');
+        return null;
+      }
+      
+      // Normalizza il barcode
+      const safeBarcode = String(barcode).trim();
+      console.log(`[DEBUG] getProductByBarcode - Cerco prodotto con barcode: "${safeBarcode}"`);
+      
       // Prima cerca nella cache locale
       const { products } = get();
-      const localProduct = products.find(p => p.barcode === barcode);
-      if (localProduct) return localProduct;
+      console.log(`[DEBUG] Controllando ${products.length} prodotti in cache`);
+      
+      // Confronta i barcode in modo più affidabile (prima normalizzando entrambi come stringhe)
+      const localProduct = products.find(p => String(p.barcode).trim() === safeBarcode);
+      
+      if (localProduct) {
+        console.log(`[DEBUG] Prodotto trovato in cache: ${localProduct.name}`);
+        return localProduct;
+      }
+      
+      console.log(`[DEBUG] Prodotto non trovato in cache, cerco nel database`);
 
       // Se non è nella cache, cerca nel database
       const productsRef = collection(db, 'products');
@@ -93,15 +111,26 @@ export const useProductStore = create<ProductState>((set, get) => ({
       let foundProduct: Product | null = null;
       
       productsSnap.forEach((doc) => {
-        const product = doc.data() as DocumentData;
-        if (product.barcode === barcode) {
-          foundProduct = { id: doc.id, ...product } as Product;
+        const data = doc.data() as DocumentData;
+        const productBarcode = String(data.barcode).trim();
+        
+        if (productBarcode === safeBarcode) {
+          console.log(`[DEBUG] Prodotto trovato in database: ${data.name}`);
+          foundProduct = { id: doc.id, ...data } as Product;
         }
       });
       
+      // Se abbiamo trovato il prodotto nel database ma non era nella cache, aggiorniamo la cache
+      if (foundProduct && !localProduct) {
+        console.log(`[DEBUG] Aggiorno cache con prodotto trovato nel database`);
+        set(state => ({
+          products: [...state.products, foundProduct as Product]
+        }));
+      }
+      
       return foundProduct;
     } catch (error) {
-      console.error("Errore durante la ricerca del prodotto:", error);
+      console.error("[DEBUG] Errore durante la ricerca del prodotto:", error);
       handleFirebaseError(error, (errorMsg) => set({ error: errorMsg }));
       return null;
     }
@@ -145,26 +174,38 @@ export const useProductStore = create<ProductState>((set, get) => ({
       console.log(`Barcode: ${barcode}`);
       console.log(`Quantità da ${isAddition ? 'aggiungere' : 'sottrarre'}: ${quantity}`);
 
+      // Validazione dell'input
+      if (!barcode || barcode.trim() === '') {
+        throw new Error('Barcode non valido');
+      }
+
+      const safeBarcode = String(barcode).trim();
+      const safeQuantity = Math.max(1, Math.floor(Number(quantity) || 1));
+      
+      console.log(`Barcode validato: "${safeBarcode}"`);
+      console.log(`Quantità validata: ${safeQuantity}`);
+
       // Ottieni il prodotto aggiornato dal database ogni volta
       // invece di usare la versione in cache per evitare problemi di sincronizzazione
       const productsRef = collection(db, 'products');
       const productsSnap = await getDocs(productsRef);
       
       // Questo oggetto contiene i dati grezzi del documento
-      let docData: DocumentData = {} as DocumentData;
+      let docData: DocumentData | null = null;
       let docId: string = '';
       
       productsSnap.forEach((docSnapshot) => {
         const data = docSnapshot.data();
-        if (data.barcode === barcode) {
+        // Confronta i barcode normalizzati
+        if (String(data.barcode).trim() === safeBarcode) {
           docData = data;
           docId = docSnapshot.id;
         }
       });
       
       if (!docData || !docId) {
-        console.error(`Prodotto non trovato con barcode: ${barcode}`);
-        throw new Error(`Prodotto non trovato con barcode: ${barcode}`);
+        console.error(`Prodotto non trovato con barcode: "${safeBarcode}"`);
+        throw new Error(`Prodotto non trovato con barcode: ${safeBarcode}`);
       }
       
       // Estrai i dati dal documento
@@ -175,21 +216,22 @@ export const useProductStore = create<ProductState>((set, get) => ({
       console.log(`Prodotto trovato: ${productName} (${productBarcode})`);
       console.log(`Quantità attuale in magazzino: ${currentQuantity}`);
       
-      // Converte la quantità in un numero intero positivo
-      const operationQuantity = Math.max(1, Math.floor(Number(quantity)));
-      console.log(`Quantità da utilizzare nell'operazione: ${operationQuantity}`);
-      
       const productRef = doc(db, 'products', docId);
       let newQuantity = 0;
       
       if (isAddition) {
         // Carico - addiziona la quantità
-        newQuantity = currentQuantity + operationQuantity;
-        console.log(`CARICO: ${currentQuantity} + ${operationQuantity} = ${newQuantity}`);
+        newQuantity = currentQuantity + safeQuantity;
+        console.log(`CARICO: ${currentQuantity} + ${safeQuantity} = ${newQuantity}`);
       } else {
         // Scarico - sottrae la quantità (non può andare sotto zero)
-        newQuantity = Math.max(0, currentQuantity - operationQuantity);
-        console.log(`SCARICO: ${currentQuantity} - ${operationQuantity} = ${newQuantity}`);
+        newQuantity = Math.max(0, currentQuantity - safeQuantity);
+        console.log(`SCARICO: ${currentQuantity} - ${safeQuantity} = ${newQuantity}`);
+        
+        // Avvisa se la quantità disponibile è insufficiente
+        if (currentQuantity < safeQuantity) {
+          console.warn(`ATTENZIONE: Quantità richiesta (${safeQuantity}) maggiore di quella disponibile (${currentQuantity}). Scarico massimo possibile.`);
+        }
       }
       
       const now = new Date();

@@ -66,8 +66,12 @@ const BarcodeScanner = ({ onProductFound }: BarcodeScannerProps) => {
     setIsScanning(true);
 
     const qrCodeSuccessCallback = async (decodedText: string) => {
-      // Previene scansioni multiple dello stesso codice o durante il cooldown
-      if (decodedText === lastBarcode || isScanCooldown) return;
+      // Previene scansioni multiple SOLO durante il cooldown, ma permette di scansionare
+      // lo stesso codice più volte dopo il cooldown
+      if (isScanCooldown) {
+        console.log(`[DEBUG] Scansione ignorata durante il cooldown: ${decodedText}`);
+        return;
+      }
       
       // Attiva cooldown per prevenire scansioni multiple rapidamente
       setIsScanCooldown(true);
@@ -75,18 +79,30 @@ const BarcodeScanner = ({ onProductFound }: BarcodeScannerProps) => {
       
       try {
         console.log(`Barcode scansionato: ${decodedText}`);
+        // Aggiungo log dettagliati
+        console.log(`[DEBUG] Prima di getProductByBarcode, barcode: ${decodedText}`);
         const product = await getProductByBarcode(decodedText);
+        console.log(`[DEBUG] Dopo getProductByBarcode, prodotto trovato:`, product);
         
         // Informa il componente padre del prodotto trovato
-        onProductFound(product, decodedText);
+        if (product) {
+          console.log(`[DEBUG] Chiamando onProductFound con:`, product, decodedText);
+          onProductFound(product, decodedText);
+          console.log(`[DEBUG] onProductFound chiamato con successo`);
+        } else {
+          console.log(`[DEBUG] Prodotto non trovato per il barcode ${decodedText}`);
+          onProductFound(null, decodedText);
+        }
         
-        // Breve pausa per evitare scansioni multiple
+        // Breve pausa per evitare scansioni multiple ravvicinate
         setTimeout(() => {
           setIsScanCooldown(false);
-        }, 2000); // Cooldown di 2 secondi
+          console.log('[DEBUG] Cooldown scansione terminato, pronto per nuova scansione');
+        }, 1500); // Ridotto a 1.5 secondi per migliorare la reattività
       } catch (error) {
+        console.error('[DEBUG] Errore durante la ricerca del prodotto:', error);
         setErrorMessage('Errore durante la ricerca del prodotto');
-        console.error(error);
+        onProductFound(null, decodedText);
         setTimeout(() => {
           setIsScanCooldown(false);
         }, 1000);

@@ -46,26 +46,40 @@ const ScannerPage = () => {
 
   // Gestisci la scansione di un prodotto tramite lo scanner
   const handleProductScanned = async (product: Product | null, scannedBarcode: string) => {
-    if (isProcessing) return;
+    console.log('[DEBUG] handleProductScanned chiamato con:', product, scannedBarcode);
+    
+    if (isProcessing) {
+      console.log('[DEBUG] Operazione già in corso, ignoro scansione');
+      return;
+    }
     
     setBarcode(scannedBarcode);
+    
+    if (!product) {
+      console.log('[DEBUG] Nessun prodotto trovato per il barcode:', scannedBarcode);
+      setProductFound(null);
+      return;
+    }
+    
+    console.log(`[DEBUG] Prodotto trovato:`, product);
     setProductFound(product);
     
     // Se troviamo il prodotto, gestiamo in base alla modalità selezionata
     if (product) {
       // Usa la quantità corrente in questo momento, non quella memorizzata in precedenza
       const currentQuantity = quantityToUpdate;
+      console.log(`[DEBUG] Quantità corrente da usare: ${currentQuantity}`);
 
       if (operationMode === 'neutral') {
         // In modalità neutrale, solo visualizza il prodotto
-        console.log('Modalità neutrale: visualizzazione prodotto', product);
+        console.log('[DEBUG] Modalità neutrale: visualizzazione prodotto', product);
       } else if (operationMode === 'carico') {
         // In modalità carico, aggiungi automaticamente la quantità
-        console.log(`Caricando ${currentQuantity} unità del prodotto ${product.name}`);
+        console.log(`[DEBUG] Caricando ${currentQuantity} unità del prodotto ${product.name}`);
         await handleProductUpdate(product, currentQuantity, 'carico');
       } else if (operationMode === 'scarico') {
         // In modalità scarico, sottrai automaticamente la quantità
-        console.log(`Scaricando ${currentQuantity} unità del prodotto ${product.name}`);
+        console.log(`[DEBUG] Scaricando ${currentQuantity} unità del prodotto ${product.name}`);
         await handleProductUpdate(product, currentQuantity, 'scarico');
       }
     }
@@ -135,9 +149,10 @@ const ScannerPage = () => {
       // Ottieni il prodotto aggiornato per avere la quantità corretta
       const updatedProduct = await getProductByBarcode(product.barcode);
       
-      // Aggiorna lo stato locale
-      setProductFound(null);
-      setBarcode('');
+      // Non resettare il prodotto trovato e il barcode qui,
+      // altrimenti non possiamo scansionare lo stesso prodotto più volte
+      // setProductFound(null); 
+      // setBarcode('');
       
       // Salva l'ultima operazione per il feedback
       if (updatedProduct) {
@@ -148,6 +163,9 @@ const ScannerPage = () => {
           quantity: safeQuantity,
           newQuantity: updatedProduct.quantity
         });
+        
+        // Aggiorna il prodotto visualizzato con i dati aggiornati
+        setProductFound(updatedProduct);
       }
     } catch (error) {
       console.error('Errore nell\'aggiornamento:', error);
