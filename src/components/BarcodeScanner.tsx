@@ -34,7 +34,7 @@ export const BarcodeScanner: React.FC<BarcodeScannerProps> = ({ onProductFound, 
           height: 100,
         },
         aspectRatio: 1.7777778, // 16:9
-        formatsToSupport: [ Html5Qrcode.FORMATS.EAN_13, Html5Qrcode.FORMATS.EAN_8 ],
+        formatsToSupport: ['ean-13', 'ean-8'], // Formati supportati per codici a barre
       };
 
       await scannerRef.current.start(
