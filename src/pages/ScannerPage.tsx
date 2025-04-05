@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect } from 'react';
 import BarcodeScanner from '../components/BarcodeScanner';
-import { ProductQuantityUpdate } from '../components/ProductQuantityUpdate';
+import ProductQuantityUpdate from '../components/ProductQuantityUpdate';
 import AddProductForm from '../components/AddProductForm';
 import { Product } from '../types/Product';
 import { useProductStore } from '../store/useProductStore';
@@ -43,8 +43,8 @@ const ScannerPage = () => {
   };
 
   // Gestisci la scansione di un prodotto tramite lo scanner
-  const handleProductScanned = async (scannedBarcode: string) => {
-    console.log('[DEBUG] handleProductScanned chiamato con:', scannedBarcode);
+  const handleProductScanned = async (product: Product | null, scannedBarcode: string) => {
+    console.log('[DEBUG] handleProductScanned chiamato con:', product, scannedBarcode);
     console.log('[DEBUG] Modalità corrente:', operationMode);
     
     if (isProcessing) {
@@ -53,9 +53,6 @@ const ScannerPage = () => {
     }
     
     setBarcode(scannedBarcode);
-    
-    // Cerca il prodotto nel database
-    const product = await getProductByBarcode(scannedBarcode);
     
     if (!product) {
       console.log('[DEBUG] Nessun prodotto trovato per il barcode:', scannedBarcode);
@@ -125,19 +122,58 @@ const ScannerPage = () => {
   };
   
   // Gestisci l'aggiornamento della quantità del prodotto
-  const handleProductUpdate = async (product: Product, quantity: number, operation: 'carico' | 'scarico') => {
+  const handleProductUpdate = async (product: Product, quantity: number, type: 'carico' | 'scarico') => {
+    if (isProcessing) return;
+    setIsProcessing(true);
+    
     try {
-      setIsProcessing(true);
-      const updatedProduct = await updateProductQuantity(product.barcode, quantity, operation);
-      setProductFound(updatedProduct);
-      setLastOperation({
-        type: operation,
-        productName: product.name,
-        quantity: quantity,
-        newQuantity: updatedProduct.quantity
-      });
+      // Assicuriamoci che la quantità sia un numero valido, convertendo esplicitamente
+      const safeQuantity = Math.max(1, Math.floor(Number(quantity)));
+      
+      console.log(`[DEBUG] handleProductUpdate - Tipo: ${type}, Quantità: ${safeQuantity}`);
+      console.log(`- Nome: ${product.name}`);
+      console.log(`- Barcode: ${product.barcode}`);
+      console.log(`- Quantità attuale: ${product.quantity}`);
+      console.log(`- Operazione: ${type.toUpperCase()}`);
+      console.log(`- Quantità da ${type === 'carico' ? 'aggiungere' : 'sottrarre'}: ${safeQuantity}`);
+      
+      // Utilizzando l'API esistente updateProductQuantity
+      const isAddition = type === 'carico'; // true per carico, false per scarico
+      console.log(`[DEBUG] isAddition = ${isAddition}, tipo = '${type}'`);
+      
+      // Per la modalità scarico, verifica esplicitamente che ci sia quantità sufficiente
+      if (!isAddition && product.quantity < safeQuantity) {
+        console.warn(`[DEBUG] Quantità insufficiente per lo scarico: disponibile ${product.quantity}, richiesto ${safeQuantity}`);
+      }
+      
+      // Chiamata esplicita all'API specificando chiaramente il terzo parametro
+      if (type === 'carico') {
+        await updateProductQuantity(product.barcode, safeQuantity, true);
+      } else {
+        await updateProductQuantity(product.barcode, safeQuantity, false);
+      }
+      
+      // Ottieni il prodotto aggiornato per avere la quantità corretta
+      const updatedProduct = await getProductByBarcode(product.barcode);
+      console.log(`[DEBUG] Prodotto dopo aggiornamento:`, updatedProduct);
+      
+      // Salva l'ultima operazione per il feedback
+      if (updatedProduct) {
+        console.log(`[DEBUG] Operazione completata: ${updatedProduct.name} ora ha ${updatedProduct.quantity} unità`);
+        setLastOperation({
+          type,
+          productName: product.name,
+          quantity: safeQuantity,
+          newQuantity: updatedProduct.quantity
+        });
+        
+        // Aggiorna il prodotto visualizzato con i dati aggiornati
+        setProductFound(updatedProduct);
+      } else {
+        console.error('[DEBUG] Impossibile recuperare il prodotto aggiornato');
+      }
     } catch (error) {
-      console.error('Errore durante l\'aggiornamento:', error);
+      console.error('[DEBUG] Errore nell\'aggiornamento:', error);
     } finally {
       setIsProcessing(false);
     }
@@ -176,16 +212,16 @@ const ScannerPage = () => {
   };
 
   return (
-    <div className="container mx-auto px-2 sm:px-4 py-4 sm:py-8 max-w-full">
+    <div className="container mx-auto px-2 sm:px-4 py-4 sm:py-8">
       <h1 className="text-xl sm:text-2xl font-bold mb-4 sm:mb-6">Scanner Prodotti</h1>
       
       {/* Modalità Operativa */}
       <div className={`bg-white rounded-lg shadow-md p-4 sm:p-6 mb-4 sm:mb-6 transition-all duration-300 ${modeFlash ? 'bg-yellow-50' : ''}`}>
         <h2 className="text-lg sm:text-xl font-semibold mb-3 sm:mb-4">Modalità Operativa</h2>
-        <div className="flex flex-col sm:flex-row gap-2 sm:gap-3 mb-3 sm:mb-4">
+        <div className="flex flex-wrap gap-2 sm:gap-3 mb-4">
           <button
             onClick={() => handleModeChange('neutral')}
-            className={`px-3 sm:px-4 py-2 rounded-lg font-bold text-white shadow-md transition-all ${
+            className={`px-3 py-2 rounded-lg font-bold text-white shadow-md transition-all text-sm sm:text-base ${
               operationMode === 'neutral'
                 ? 'bg-gray-700 ring-4 ring-gray-300'
                 : 'bg-gray-500 hover:bg-gray-600'
@@ -195,7 +231,7 @@ const ScannerPage = () => {
           </button>
           <button
             onClick={() => handleModeChange('carico')}
-            className={`px-3 sm:px-4 py-2 rounded-lg font-bold text-white shadow-md transition-all ${
+            className={`px-3 py-2 rounded-lg font-bold text-white shadow-md transition-all text-sm sm:text-base ${
               operationMode === 'carico'
                 ? 'bg-green-700 ring-4 ring-green-300'
                 : 'bg-green-500 hover:bg-green-600'
@@ -205,7 +241,7 @@ const ScannerPage = () => {
           </button>
           <button
             onClick={() => handleModeChange('scarico')}
-            className={`px-3 sm:px-4 py-2 rounded-lg font-bold text-white shadow-md transition-all ${
+            className={`px-3 py-2 rounded-lg font-bold text-white shadow-md transition-all text-sm sm:text-base ${
               operationMode === 'scarico'
                 ? 'bg-red-700 ring-4 ring-red-300'
                 : 'bg-red-500 hover:bg-red-600'
@@ -233,10 +269,10 @@ const ScannerPage = () => {
       {operationMode !== 'neutral' && (
         <div className={`bg-white rounded-lg shadow-md p-4 sm:p-6 mb-4 sm:mb-6 transition-all duration-300 ${quantityFlash ? 'bg-blue-50' : ''}`}>
           <h2 className="text-base sm:text-lg font-semibold mb-2">Quantità per {operationMode === 'carico' ? 'carico' : 'scarico'}</h2>
-          <div className="flex items-center justify-center">
+          <div className="flex items-center">
             <button 
               onClick={() => handleQuantityChange(Math.max(1, quantityToUpdate - 1))}
-              className="px-3 py-1 bg-gray-200 hover:bg-gray-300 rounded-l-lg font-bold text-gray-700 text-lg"
+              className="px-3 py-1 bg-gray-200 hover:bg-gray-300 rounded-l-lg font-bold text-gray-700"
             >
               -
             </button>
@@ -248,21 +284,22 @@ const ScannerPage = () => {
                 if (!isNaN(val) && val > 0) {
                   handleQuantityChange(val);
                 } else if (e.target.value === '') {
+                  // Permette di cancellare il campo per inserire un nuovo valore
                   handleQuantityChange(1);
                 }
               }}
-              onFocus={(e) => e.target.select()}
+              onFocus={(e) => e.target.select()} // Seleziona tutto il testo quando si clicca
               min="1"
-              className="w-16 sm:w-20 text-center py-1 border-t border-b border-gray-300 focus:outline-none focus:ring-2 focus:ring-blue-500 text-lg"
+              className="w-16 sm:w-20 text-center py-1 border-t border-b border-gray-300 focus:outline-none focus:ring-2 focus:ring-blue-500"
             />
             <button 
               onClick={() => handleQuantityChange(quantityToUpdate + 1)}
-              className="px-3 py-1 bg-gray-200 hover:bg-gray-300 rounded-r-lg font-bold text-gray-700 text-lg"
+              className="px-3 py-1 bg-gray-200 hover:bg-gray-300 rounded-r-lg font-bold text-gray-700"
             >
               +
             </button>
           </div>
-          <p className="text-xs sm:text-sm text-gray-600 mt-2 text-center">
+          <p className="text-xs sm:text-sm text-gray-600 mt-2">
             Nota: Ogni scansione {operationMode === 'carico' ? 'caricherà' : 'scaricherà'} 
             <strong className="mx-1">{quantityToUpdate}</strong> 
             unità del prodotto scansionato. Puoi modificare questa quantità in qualsiasi momento.
@@ -292,40 +329,36 @@ const ScannerPage = () => {
       
       {isProcessing && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-10">
-          <div className="bg-white p-4 sm:p-6 rounded-lg shadow-lg text-center">
+          <div className="bg-white p-4 sm:p-6 rounded-lg shadow-lg text-center mx-4">
             <p className="text-base sm:text-lg font-semibold mb-2">Elaborazione in corso...</p>
-            <div className="w-8 h-8 border-4 border-blue-500 border-t-transparent rounded-full animate-spin mx-auto"></div>
+            <div className="w-6 h-6 sm:w-8 sm:h-8 border-4 border-blue-500 border-t-transparent rounded-full animate-spin mx-auto"></div>
           </div>
         </div>
       )}
 
       {/* Scanner e Form */}
       <div className="bg-white rounded-lg shadow-md p-4 sm:p-6">
-        <h2 className="text-base sm:text-lg font-semibold mb-4">Scanner Barcode</h2>
-        <div className="mb-4">
-          <BarcodeScanner 
-            onProductFound={handleProductScanned}
-            isProcessing={isProcessing}
-          />
+        <h2 className="text-lg sm:text-xl font-semibold mb-3 sm:mb-4">Scansiona Codice a Barre</h2>
+        
+        {/* Scanner automatico */}
+        <div className="mb-6 sm:mb-8">
+          <BarcodeScanner onProductFound={handleProductScanned} />
         </div>
         
-        <div className="mb-4">
-          <label htmlFor="barcode" className="block text-sm sm:text-base font-medium text-gray-700 mb-2">
-            Inserisci manualmente il barcode
-          </label>
-          <div className="flex">
+        <div className="border-t border-gray-200 pt-4 sm:pt-6 mt-4 sm:mt-6">
+          <h3 className="text-base sm:text-lg font-semibold mb-3">Inserimento Manuale</h3>
+          <div className="flex flex-col sm:flex-row mb-4 gap-2 sm:gap-0">
             <input
               type="text"
-              id="barcode"
               value={barcode}
               onChange={(e) => setBarcode(e.target.value)}
-              placeholder="Inserisci il codice a barre"
-              className="flex-1 px-3 py-2 border border-gray-300 rounded-l-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+              placeholder="Inserisci codice a barre"
+              className="w-full px-4 py-2 border border-gray-300 rounded-lg sm:rounded-l-lg sm:rounded-r-none focus:outline-none focus:ring-2 focus:ring-blue-500"
             />
             <button
               onClick={handleScan}
               disabled={!barcode || isProcessing}
-              className={`px-4 py-2 rounded-r-lg font-bold text-white ${
+              className={`w-full sm:w-auto px-4 py-2 sm:rounded-l-none rounded-lg sm:rounded-r-lg font-bold text-white ${
                 !barcode || isProcessing
                   ? 'bg-gray-300 cursor-not-allowed'
                   : 'bg-blue-500 hover:bg-blue-600'
@@ -335,75 +368,76 @@ const ScannerPage = () => {
             </button>
           </div>
         </div>
-      </div>
-
-      {/* Risultato della scansione o ricerca */}
-      {productFound ? (
-        <div className="mt-4 sm:mt-6 p-4 border border-gray-200 rounded-lg bg-gray-50">
-          <h3 className="font-bold text-base sm:text-lg mb-2">{productFound.name}</h3>
-          <p className="text-xs sm:text-sm mb-1"><span className="font-semibold">Barcode:</span> {productFound.barcode}</p>
-          <p className="mb-3">
-            <span className="font-semibold">Quantità in magazzino:</span> 
-            <span className={`ml-1 font-bold ${
-              productFound.quantity <= 0 ? 'text-red-600' : 'text-green-600'
-            }`}>{productFound.quantity}</span>
-          </p>
-          
-          {/* Opzioni per il prodotto trovato */}
-          {operationMode === 'neutral' ? (
-            <div className="mt-4 flex flex-col sm:flex-row gap-2">
-              <button
-                onClick={() => handleProductUpdate(productFound, quantityToUpdate, 'carico')}
-                className="flex-1 px-3 py-2 bg-green-500 hover:bg-green-600 text-white font-bold rounded-lg"
-              >
-                Carica
-              </button>
-              <button
-                onClick={() => handleProductUpdate(productFound, quantityToUpdate, 'scarico')}
-                className="flex-1 px-3 py-2 bg-red-500 hover:bg-red-600 text-white font-bold rounded-lg"
-                disabled={productFound.quantity <= 0}
-              >
-                Scarica
-              </button>
-            </div>
-          ) : (
-            <div className="mt-4">
-              <button
-                onClick={() => handleProductUpdate(productFound, quantityToUpdate, operationMode as 'carico' | 'scarico')}
-                className={`w-full px-4 py-2 font-bold text-white rounded-lg ${
-                  operationMode === 'carico' 
-                    ? 'bg-green-500 hover:bg-green-600' 
-                    : (productFound.quantity <= 0 
-                        ? 'bg-gray-400 cursor-not-allowed' 
-                        : 'bg-red-500 hover:bg-red-600')
-                }`}
-                disabled={operationMode === 'scarico' && productFound.quantity <= 0}
-              >
-                {operationMode === 'carico' 
-                  ? `Carica ${quantityToUpdate} unità` 
-                  : `Scarica ${quantityToUpdate} unità`}
-              </button>
-              <p className="text-xs sm:text-sm text-gray-600 mt-2 text-center">
-                Puoi modificare la quantità sopra e ripetere l'operazione.
-              </p>
-            </div>
-          )}
-        </div>
-      ) : barcode ? (
-        <div className="mt-4 sm:mt-6">
-          <div className="p-4 bg-yellow-50 border border-yellow-300 rounded-lg">
-            <p className="font-medium text-sm sm:text-base text-yellow-800">Prodotto non trovato con questo codice a barre.</p>
-            <p className="mt-2 text-xs sm:text-sm">Vuoi aggiungere un nuovo prodotto con barcode <strong>{barcode}</strong>?</p>
+        
+        {/* Risultato della scansione o ricerca */}
+        {productFound ? (
+          <div className="mt-4 sm:mt-6 p-3 sm:p-4 border border-gray-200 rounded-lg bg-gray-50">
+            <h3 className="font-bold text-base sm:text-lg mb-2">{productFound.name}</h3>
+            <p className="text-xs sm:text-sm mb-1"><span className="font-semibold">Barcode:</span> {productFound.barcode}</p>
+            <p className="mb-3 text-sm">
+              <span className="font-semibold">Quantità in magazzino:</span> 
+              <span className={`ml-1 font-bold ${
+                productFound.quantity <= 0 ? 'text-red-600' : 'text-green-600'
+              }`}>{productFound.quantity}</span>
+            </p>
             
-            <div className="mt-4">
-              <AddProductForm
-                initialBarcode={barcode}
-                onProductAdded={handleProductAdded}
-              />
+            {/* Opzioni per il prodotto trovato */}
+            {operationMode === 'neutral' ? (
+              <div className="mt-3 sm:mt-4 flex space-x-2">
+                <button
+                  onClick={() => handleProductUpdate(productFound, quantityToUpdate, 'carico')}
+                  className="flex-1 px-3 py-2 bg-green-500 hover:bg-green-600 text-white font-bold rounded-lg text-sm sm:text-base"
+                >
+                  Carica
+                </button>
+                <button
+                  onClick={() => handleProductUpdate(productFound, quantityToUpdate, 'scarico')}
+                  className="flex-1 px-3 py-2 bg-red-500 hover:bg-red-600 text-white font-bold rounded-lg text-sm sm:text-base"
+                  disabled={productFound.quantity <= 0}
+                >
+                  Scarica
+                </button>
+              </div>
+            ) : (
+              // In modalità carico o scarico aggiungiamo un pulsante per ripetere l'operazione
+              <div className="mt-3 sm:mt-4">
+                <button
+                  onClick={() => handleProductUpdate(productFound, quantityToUpdate, operationMode as 'carico' | 'scarico')}
+                  className={`w-full px-3 py-2 font-bold text-white rounded-lg text-sm sm:text-base ${
+                    operationMode === 'carico' 
+                      ? 'bg-green-500 hover:bg-green-600' 
+                      : (productFound.quantity <= 0 
+                          ? 'bg-gray-400 cursor-not-allowed' 
+                          : 'bg-red-500 hover:bg-red-600')
+                  }`}
+                  disabled={operationMode === 'scarico' && productFound.quantity <= 0}
+                >
+                  {operationMode === 'carico' 
+                    ? `Carica ${quantityToUpdate} unità` 
+                    : `Scarica ${quantityToUpdate} unità`}
+                </button>
+                <p className="text-xs sm:text-sm text-gray-600 mt-2 text-center">
+                  Puoi modificare la quantità sopra e ripetere l'operazione.
+                </p>
+              </div>
+            )}
+          </div>
+        ) : barcode ? (
+          <div className="mt-4 sm:mt-6">
+            <div className="p-3 sm:p-4 bg-yellow-50 border border-yellow-300 rounded-lg">
+              <p className="font-medium text-yellow-800 text-sm sm:text-base">Prodotto non trovato con questo codice a barre.</p>
+              <p className="mt-2 text-sm sm:text-base">Vuoi aggiungere un nuovo prodotto con barcode <strong>{barcode}</strong>?</p>
+              
+              <div className="mt-3 sm:mt-4">
+                <AddProductForm
+                  initialBarcode={barcode}
+                  onProductAdded={handleProductAdded}
+                />
+              </div>
             </div>
           </div>
-        </div>
-      ) : null}
+        ) : null}
+      </div>
     </div>
   );
 };
