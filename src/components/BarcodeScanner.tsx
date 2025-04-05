@@ -154,7 +154,9 @@ const BarcodeScanner = ({ onProductFound }: BarcodeScannerProps) => {
 
   return (
     <div className="flex flex-col items-center w-full">
-      <div id="reader" className="w-full max-w-md h-56 sm:h-64 border-2 border-gray-300 rounded-lg mb-3 sm:mb-4"></div>
+      <div className="w-full max-w-md overflow-hidden">
+        <div id="reader" className="w-full h-56 sm:h-64 border-2 border-gray-300 rounded-lg mb-3 sm:mb-4"></div>
+      </div>
       
       {errorMessage && (
         <div className="text-red-500 mb-3 sm:mb-4 text-sm sm:text-base">{errorMessage}</div>

@@ -341,7 +341,7 @@ const ScannerPage = () => {
         <h2 className="text-lg sm:text-xl font-semibold mb-3 sm:mb-4">Scansiona Codice a Barre</h2>
         
         {/* Scanner automatico */}
-        <div className="mb-6 sm:mb-8">
+        <div className="mb-6 sm:mb-8 overflow-hidden">
           <BarcodeScanner onProductFound={handleProductScanned} />
         </div>
         
