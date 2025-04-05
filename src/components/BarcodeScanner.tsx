@@ -27,17 +27,27 @@ export const BarcodeScanner: React.FC<BarcodeScannerProps> = ({ onProductFound, 
         scannerRef.current = new Html5Qrcode("scanner-container");
       }
 
+      const config = {
+        fps: 15, // Aumentato per una scansione più fluida
+        qrbox: {
+          width: 200,
+          height: 100,
+        },
+        aspectRatio: 1.7777778, // 16:9
+        formatsToSupport: [ Html5Qrcode.FORMATS.EAN_13, Html5Qrcode.FORMATS.EAN_8 ],
+      };
+
       await scannerRef.current.start(
         { facingMode: "environment" },
-        {
-          fps: 10,
-          qrbox: { width: 250, height: 250 },
-        },
+        config,
         (decodedText) => {
           handleScanSuccess(decodedText);
         },
         (errorMessage) => {
-          console.log(errorMessage);
+          // Ignora gli errori di decodifica che sono normali durante la scansione
+          if (!errorMessage.includes("No barcode")) {
+            console.log(errorMessage);
+          }
         }
       );
 
@@ -166,12 +176,22 @@ export const BarcodeScanner: React.FC<BarcodeScannerProps> = ({ onProductFound, 
           </button>
         </div>
 
-        <div 
-          id="scanner-container" 
-          className={`w-full aspect-video bg-black rounded-lg overflow-hidden ${
-            scanning ? 'block' : 'hidden'
-          }`}
-        />
+        <div className="relative">
+          <div 
+            id="scanner-container" 
+            className="w-full h-[300px] bg-black rounded-lg overflow-hidden"
+          />
+          {scanning && (
+            <div className="absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 pointer-events-none">
+              <div className="w-[200px] h-[100px] border-2 border-blue-500 rounded-lg">
+                <div className="absolute top-0 left-0 w-4 h-4 border-t-2 border-l-2 border-blue-500" />
+                <div className="absolute top-0 right-0 w-4 h-4 border-t-2 border-r-2 border-blue-500" />
+                <div className="absolute bottom-0 left-0 w-4 h-4 border-b-2 border-l-2 border-blue-500" />
+                <div className="absolute bottom-0 right-0 w-4 h-4 border-b-2 border-r-2 border-blue-500" />
+              </div>
+            </div>
+          )}
+        </div>
         
         {error && (
           <div className="mt-2 p-2 bg-red-50 text-red-600 rounded text-sm">
