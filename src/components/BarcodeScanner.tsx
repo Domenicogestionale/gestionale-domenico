@@ -6,7 +6,7 @@ import { Product } from '../types/Product';
 let html5QrCode: Html5Qrcode;
 
 interface BarcodeScannerProps {
-  onProductFound: (product: Product | null, barcode: string) => void;
+  onProductFound: (barcode: string) => void;
   isProcessing: boolean;
 }
 

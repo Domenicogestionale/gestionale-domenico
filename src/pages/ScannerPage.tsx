@@ -122,58 +122,19 @@ const ScannerPage = () => {
   };
   
   // Gestisci l'aggiornamento della quantità del prodotto
-  const handleProductUpdate = async (product: Product, quantity: number, type: 'carico' | 'scarico') => {
-    if (isProcessing) return;
-    setIsProcessing(true);
-    
+  const handleProductUpdate = async (product: Product, quantity: number, operation: 'carico' | 'scarico') => {
     try {
-      // Assicuriamoci che la quantità sia un numero valido, convertendo esplicitamente
-      const safeQuantity = Math.max(1, Math.floor(Number(quantity)));
-      
-      console.log(`[DEBUG] handleProductUpdate - Tipo: ${type}, Quantità: ${safeQuantity}`);
-      console.log(`- Nome: ${product.name}`);
-      console.log(`- Barcode: ${product.barcode}`);
-      console.log(`- Quantità attuale: ${product.quantity}`);
-      console.log(`- Operazione: ${type.toUpperCase()}`);
-      console.log(`- Quantità da ${type === 'carico' ? 'aggiungere' : 'sottrarre'}: ${safeQuantity}`);
-      
-      // Utilizzando l'API esistente updateProductQuantity
-      const isAddition = type === 'carico'; // true per carico, false per scarico
-      console.log(`[DEBUG] isAddition = ${isAddition}, tipo = '${type}'`);
-      
-      // Per la modalità scarico, verifica esplicitamente che ci sia quantità sufficiente
-      if (!isAddition && product.quantity < safeQuantity) {
-        console.warn(`[DEBUG] Quantità insufficiente per lo scarico: disponibile ${product.quantity}, richiesto ${safeQuantity}`);
-      }
-      
-      // Chiamata esplicita all'API specificando chiaramente il terzo parametro
-      if (type === 'carico') {
-        await updateProductQuantity(product.barcode, safeQuantity, true);
-      } else {
-        await updateProductQuantity(product.barcode, safeQuantity, false);
-      }
-      
-      // Ottieni il prodotto aggiornato per avere la quantità corretta
-      const updatedProduct = await getProductByBarcode(product.barcode);
-      console.log(`[DEBUG] Prodotto dopo aggiornamento:`, updatedProduct);
-      
-      // Salva l'ultima operazione per il feedback
-      if (updatedProduct) {
-        console.log(`[DEBUG] Operazione completata: ${updatedProduct.name} ora ha ${updatedProduct.quantity} unità`);
-        setLastOperation({
-          type,
-          productName: product.name,
-          quantity: safeQuantity,
-          newQuantity: updatedProduct.quantity
-        });
-        
-        // Aggiorna il prodotto visualizzato con i dati aggiornati
-        setProductFound(updatedProduct);
-      } else {
-        console.error('[DEBUG] Impossibile recuperare il prodotto aggiornato');
-      }
+      setIsProcessing(true);
+      const updatedProduct = await updateProductQuantity(product.barcode, quantity, operation);
+      setProductFound(updatedProduct);
+      setLastOperation({
+        type: operation,
+        productName: product.name,
+        quantity: quantity,
+        newQuantity: updatedProduct.quantity
+      });
     } catch (error) {
-      console.error('[DEBUG] Errore nell\'aggiornamento:', error);
+      console.error('Errore durante l\'aggiornamento:', error);
     } finally {
       setIsProcessing(false);
     }
