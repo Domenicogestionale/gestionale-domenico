@@ -1,13 +1,13 @@
 import { useState, useEffect } from 'react';
-import { useProductStoreContext } from '../App';
+import { useProductStore } from '../store/useProductStore';
 import { Product } from '../types/Product';
 
 const ProductTable = () => {
   console.log('Rendering ProductTable component');
   
   try {
-    const { products, isLoading, error, fetchProducts } = useProductStoreContext();
-    console.log('ProductStore context values:', { products, isLoading, error });
+    const { products, isLoading, error, fetchProducts } = useProductStore();
+    console.log('ProductStore values:', { products, isLoading, error });
     
     const [searchTerm, setSearchTerm] = useState('');
     const [sortColumn, setSortColumn] = useState<keyof Product>('name');
@@ -50,7 +50,12 @@ const ProductTable = () => {
 
     const formatDate = (date: Date | undefined) => {
       if (!date) return '-';
-      return new Date(date).toLocaleDateString('it-IT');
+      try {
+        return new Date(date).toLocaleDateString('it-IT');
+      } catch (error) {
+        console.error('Error formatting date:', error);
+        return '-';
+      }
     };
 
     if (isLoading) {
@@ -109,41 +114,23 @@ const ProductTable = () => {
             </tr>
           </thead>
           <tbody>
-            {sortedProducts.length === 0 ? (
-              <tr>
-                <td colSpan={4} className="py-4 text-center border">
-                  {searchTerm ? 'Nessun prodotto corrisponde alla ricerca' : 'Nessun prodotto disponibile'}
+            {sortedProducts.map(product => (
+              <tr key={product.id} className="hover:bg-gray-50">
+                <td className="py-2 px-4 border">{product.name}</td>
+                <td className="py-2 px-4 border">{product.barcode}</td>
+                <td className="py-2 px-4 border text-center">{product.quantity}</td>
+                <td className="py-2 px-4 border text-center">
+                  {formatDate(product.updatedAt)}
                 </td>
               </tr>
-            ) : (
-              sortedProducts.map((product) => (
-                <tr key={product.id} className="hover:bg-gray-50">
-                  <td className="py-2 px-4 border">{product.name}</td>
-                  <td className="py-2 px-4 border">{product.barcode}</td>
-                  <td className="py-2 px-4 border text-center">
-                    <span className={`font-bold ${product.quantity <= 0 ? 'text-red-500' : 'text-green-600'}`}>
-                      {product.quantity}
-                    </span>
-                  </td>
-                  <td className="py-2 px-4 border">{formatDate(product.updatedAt)}</td>
-                </tr>
-              ))
-            )}
+            ))}
           </tbody>
         </table>
-        
-        <div className="mt-4 text-sm text-gray-500">
-          {filteredProducts.length} prodotti trovati
-        </div>
       </div>
     );
-  } catch (err) {
-    console.error('Error in ProductTable component:', err);
-    return (
-      <div className="text-center text-red-500 py-4">
-        Si è verificato un errore nel caricamento della tabella: {(err as Error).message}
-      </div>
-    );
+  } catch (error) {
+    console.error('Error in ProductTable component:', error);
+    return <div className="text-center text-red-500 py-4">Si è verificato un errore nel caricamento della tabella.</div>;
   }
 };
 

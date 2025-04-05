@@ -1,46 +1,53 @@
-import { BrowserRouter as Router, Routes, Route } from 'react-router-dom';
-import Navigation from './components/Navigation';
-import HomePage from './pages/HomePage';
-import ScannerPage from './pages/ScannerPage';
-import InventoryPage from './pages/InventoryPage';
-import AddProductPage from './pages/AddProductPage';
-import { useEffect } from 'react';
+import { createContext, lazy, Suspense } from 'react';
+import { BrowserRouter as Router, Routes, Route, Link } from 'react-router-dom';
 import { useProductStore } from './store/useProductStore';
+import "./App.css";
+
+// Lazy load pages for better performance
+const HomePage = lazy(() => import('./pages/HomePage'));
+const ScannerPage = lazy(() => import('./pages/ScannerPage'));
+const InventoryPage = lazy(() => import('./pages/InventoryPage'));
+const AddProductPage = lazy(() => import('./pages/AddProductPage'));
+
+// Create a context to pass the store to components
+export const ProductStoreContext = createContext(useProductStore);
 
 function App() {
-  console.log('App component rendering');
-  const { fetchProducts, products, isLoading, error } = useProductStore();
-  
-  console.log('productStore:', {
-    productsLength: products.length,
-    isLoading,
-    hasError: !!error
-  });
-
-  useEffect(() => {
-    console.log('App useEffect - starting fetchProducts');
-    // Carica i prodotti all'avvio dell'app
-    fetchProducts()
-      .then(() => console.log('Products fetched successfully'))
-      .catch(err => console.error('Error fetching products:', err));
-  }, [fetchProducts]);
-
   return (
     <Router>
-      <div className="min-h-screen bg-gray-100">
-        <Navigation />
-        <main>
-          <Routes>
-            <Route path="/" element={<HomePage />} />
-            <Route path="/scanner" element={<ScannerPage />} />
-            <Route path="/inventario" element={<InventoryPage />} />
-            <Route path="/aggiungi" element={<AddProductPage />} />
-          </Routes>
-        </main>
-        <footer className="py-4 text-center text-gray-500 text-sm mt-auto">
-          <p>Gestionale Carico e Scarico Magazzino &copy; {new Date().getFullYear()}</p>
-        </footer>
-      </div>
+      <ProductStoreContext.Provider value={useProductStore}>
+        <div className="app-container">
+          <header className="app-header">
+            <h1>Gestionale Carico e Scarico</h1>
+          </header>
+          
+          <main className="app-content">
+            <Suspense fallback={<div className="loading">Caricamento...</div>}>
+              <Routes>
+                <Route path="/" element={<HomePage />} />
+                <Route path="/scanner" element={<ScannerPage />} />
+                <Route path="/inventory" element={<InventoryPage />} />
+                <Route path="/add-product" element={<AddProductPage />} />
+              </Routes>
+            </Suspense>
+          </main>
+          
+          <nav className="app-navigation">
+            <Link to="/scanner" className="nav-item">
+              <span className="icon">📷</span>
+              <span>Scanner</span>
+            </Link>
+            <Link to="/inventory" className="nav-item">
+              <span className="icon">📋</span>
+              <span>Inventario</span>
+            </Link>
+            <Link to="/" className="nav-item">
+              <span className="icon">ℹ️</span>
+              <span>Info</span>
+            </Link>
+          </nav>
+        </div>
+      </ProductStoreContext.Provider>
     </Router>
   );
 }
