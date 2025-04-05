@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect } from 'react';
 import BarcodeScanner from '../components/BarcodeScanner';
-import ProductQuantityUpdate from '../components/ProductQuantityUpdate';
+import { ProductQuantityUpdate } from '../components/ProductQuantityUpdate';
 import AddProductForm from '../components/AddProductForm';
 import { Product } from '../types/Product';
 import { useProductStore } from '../store/useProductStore';
@@ -43,8 +43,8 @@ const ScannerPage = () => {
   };
 
   // Gestisci la scansione di un prodotto tramite lo scanner
-  const handleProductScanned = async (product: Product | null, scannedBarcode: string) => {
-    console.log('[DEBUG] handleProductScanned chiamato con:', product, scannedBarcode);
+  const handleProductScanned = async (scannedBarcode: string) => {
+    console.log('[DEBUG] handleProductScanned chiamato con:', scannedBarcode);
     console.log('[DEBUG] Modalità corrente:', operationMode);
     
     if (isProcessing) {
@@ -53,6 +53,9 @@ const ScannerPage = () => {
     }
     
     setBarcode(scannedBarcode);
+    
+    // Cerca il prodotto nel database
+    const product = await getProductByBarcode(scannedBarcode);
     
     if (!product) {
       console.log('[DEBUG] Nessun prodotto trovato per il barcode:', scannedBarcode);
