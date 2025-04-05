@@ -118,13 +118,27 @@ export const BarcodeScanner: React.FC<BarcodeScannerProps> = ({ onProductFound, 
           </div>
         )}
         
-        <p className="text-xs text-gray-500">
-          {scanning 
-            ? 'Posiziona il codice a barre davanti allo scanner...' 
-            : cooldownProgress > 0
-              ? 'Attendi prima della prossima scansione...'
-              : 'Premi un tasto per iniziare la scansione'}
-        </p>
+        <div className="flex flex-col sm:flex-row items-center gap-2">
+          <button
+            onClick={() => setScanning(true)}
+            disabled={scanning || cooldownProgress > 0 || isProcessing}
+            className={`px-4 py-2 rounded-lg font-bold text-white ${
+              scanning || cooldownProgress > 0 || isProcessing
+                ? 'bg-gray-400 cursor-not-allowed'
+                : 'bg-blue-500 hover:bg-blue-600'
+            }`}
+          >
+            Avvia Scanner
+          </button>
+          
+          <p className="text-xs text-gray-500">
+            {scanning 
+              ? 'Posiziona il codice a barre davanti allo scanner...' 
+              : cooldownProgress > 0
+                ? 'Attendi prima della prossima scansione...'
+                : 'Premi un tasto per iniziare la scansione'}
+          </p>
+        </div>
         
         {lastScannedBarcode && (
           <div className="mt-2 p-2 bg-gray-100 rounded text-sm font-mono">
