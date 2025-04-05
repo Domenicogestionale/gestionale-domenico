@@ -151,7 +151,7 @@ export const useProductStore = create<ProductState>((set, get) => ({
       const productsSnap = await getDocs(productsRef);
       
       // Questo oggetto contiene i dati grezzi del documento
-      let docData: DocumentData | null = null;
+      let docData: DocumentData = {} as DocumentData;
       let docId: string = '';
       
       productsSnap.forEach((docSnapshot) => {
