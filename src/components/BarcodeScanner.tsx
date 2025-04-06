@@ -102,7 +102,7 @@ const BarcodeScanner = ({ onProductScanned }: BarcodeScannerProps) => {
         { facingMode: "environment" },
         { 
           fps: 10, 
-          qrbox: { width: 300, height: 200 },
+          qrbox: { width: 250, height: 150 },
           aspectRatio: 1.0,
           disableFlip: true
         },
@@ -160,7 +160,7 @@ const BarcodeScanner = ({ onProductScanned }: BarcodeScannerProps) => {
         <div id="reader" className={`w-full ${isScanning ? 'h-64 sm:h-80' : 'h-0'} border rounded-lg mb-3 sm:mb-4 transition-all duration-300 overflow-hidden relative`}>
           {isScanning && (
             <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
-              <div className="w-[90%] h-[70%] border-4 border-blue-500 rounded-lg relative opacity-50">
+              <div className="w-[80%] h-[60%] border-4 border-blue-500 rounded-lg relative bg-blue-100 bg-opacity-10">
                 <div className="absolute -top-2 -left-2 w-8 h-8 border-t-4 border-l-4 border-blue-500"></div>
                 <div className="absolute -top-2 -right-2 w-8 h-8 border-t-4 border-r-4 border-blue-500"></div>
                 <div className="absolute -bottom-2 -left-2 w-8 h-8 border-b-4 border-l-4 border-blue-500"></div>
