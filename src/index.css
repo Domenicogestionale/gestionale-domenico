@@ -185,3 +185,51 @@ button:focus-visible {
     width: 100%;
   }
 }
+
+/* Animazioni per il carrello */
+@keyframes cartItemHighlight {
+  0% { background-color: rgba(59, 130, 246, 0.1); }
+  50% { background-color: rgba(59, 130, 246, 0.3); }
+  100% { background-color: transparent; }
+}
+
+.cart-item-flash {
+  animation: cartItemHighlight 1s ease-out;
+}
+
+/* Stili per la modalità cassa */
+.cart-table {
+  border-collapse: collapse;
+  width: 100%;
+}
+
+.cart-table th,
+.cart-table td {
+  padding: 0.5rem;
+  text-align: left;
+}
+
+.cart-table th {
+  background-color: #f3f4f6;
+  font-weight: 600;
+}
+
+.cart-table tr {
+  border-bottom: 1px solid #e5e7eb;
+}
+
+.cart-table tr:last-child {
+  border-bottom: none;
+}
+
+.checkout-modal {
+  max-width: 500px;
+  width: 100%;
+  max-height: 90vh;
+  overflow-y: auto;
+}
+
+/* Stile numerico per prezzi */
+.price {
+  font-variant-numeric: tabular-nums;
+}

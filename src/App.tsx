@@ -27,7 +27,7 @@ function App() {
                 <Route path="/" element={<HomePage />} />
                 <Route path="/scanner" element={<ScannerPage />} />
                 <Route path="/inventory" element={<InventoryPage />} />
-                <Route path="/add-product" element={<AddProductPage />} />
+                <Route path="/aggiungi" element={<AddProductPage />} />
               </Routes>
             </Suspense>
           </main>

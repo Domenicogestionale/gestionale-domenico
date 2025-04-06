@@ -11,8 +11,8 @@ export default defineConfig({
     },
   },
   optimizeDeps: {
-    include: ['html5-qrcode'],
-    exclude: ['react-icons']
+    include: ['html5-qrcode', 'react-icons', 'react-icons/fa'],
+    exclude: []
   },
   build: {
     outDir: 'dist',

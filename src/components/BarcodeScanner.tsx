@@ -3,227 +3,219 @@ import { Html5Qrcode } from 'html5-qrcode';
 import { useProductStore } from '../store/useProductStore';
 import { Product } from '../types/Product';
 
+// Variabile globale per lo scanner
 let html5QrCode: Html5Qrcode;
 
 interface BarcodeScannerProps {
-  onProductFound: (product: Product | null, barcode: string) => void;
+  onProductScanned: (product: Product | null, barcode: string) => void;
 }
 
-const BarcodeScanner = ({ onProductFound }: BarcodeScannerProps) => {
+const BarcodeScanner = ({ onProductScanned }: BarcodeScannerProps) => {
   const [isScanning, setIsScanning] = useState(false);
   const [lastBarcode, setLastBarcode] = useState<string>('');
   const [errorMessage, setErrorMessage] = useState<string>('');
-  const [isVolumeKeyEnabled, setIsVolumeKeyEnabled] = useState(false);
   const [isScanCooldown, setIsScanCooldown] = useState(false);
   const [remainingCooldown, setRemainingCooldown] = useState(0);
+  const cooldownRef = useRef<NodeJS.Timeout | null>(null);
   const { getProductByBarcode } = useProductStore();
 
   useEffect(() => {
-    // Inizializza lo scanner al caricamento del componente
-    html5QrCode = new Html5Qrcode("reader");
-
     // Pulizia al momento dell'unmount
     return () => {
+      if (cooldownRef.current) {
+        clearInterval(cooldownRef.current);
+      }
       if (html5QrCode && isScanning) {
         html5QrCode.stop().catch(() => console.log('Scanner già fermato'));
       }
-      
-      // Rimuovi event listener per i tasti volume se attivo
-      if (isVolumeKeyEnabled) {
-        document.removeEventListener('keydown', handleVolumeKeyPress);
-      }
     };
   }, []);
-  
-  // Gestisce pressione tasti volume
-  const handleVolumeKeyPress = (event: KeyboardEvent) => {
-    // Tasto volume su (24) o volume giù (25)
-    if (event.keyCode === 24 || event.keyCode === 25 || event.key === 'AudioVolumeUp' || event.key === 'AudioVolumeDown') {
-      event.preventDefault();
-      
-      if (isScanning) {
-        stopScanner();
-      } else {
-        startScanner();
-      }
-    }
-  };
-  
-  // Abilita/disabilita controllo tasti volume
-  const toggleVolumeKeyControl = () => {
-    if (isVolumeKeyEnabled) {
-      // Disabilita controllo tasti volume
-      document.removeEventListener('keydown', handleVolumeKeyPress);
-      setIsVolumeKeyEnabled(false);
-    } else {
-      // Abilita controllo tasti volume
-      document.addEventListener('keydown', handleVolumeKeyPress);
-      setIsVolumeKeyEnabled(true);
-    }
-  };
 
-  const startScanner = () => {
-    setErrorMessage('');
-    setIsScanning(true);
-
-    const qrCodeSuccessCallback = async (decodedText: string) => {
-      // Previene scansioni multiple SOLO durante il cooldown, ma permette di scansionare
-      // lo stesso codice più volte dopo il cooldown
+  const startScanner = async () => {
+    try {
+      // Se siamo in cooldown, non avviare lo scanner
       if (isScanCooldown) {
-        console.log(`[DEBUG] Scansione ignorata durante il cooldown: ${decodedText}`);
+        console.log('Scanner in cooldown, non posso avviare');
         return;
       }
+
+      setErrorMessage('');
+      html5QrCode = new Html5Qrcode("reader");
       
-      // Attiva cooldown per prevenire scansioni multiple rapidamente
-      setIsScanCooldown(true);
-      
-      // Aggiorniamo lastBarcode anche se è lo stesso di prima
-      // In questo modo permettiamo scansioni ripetute dello stesso codice
-      // (la quantità sarà controllata nel componente padre)
-      setLastBarcode(decodedText);
-      
-      // Inizializza il countdown visivo
-      setRemainingCooldown(3);
-      const countdownInterval = setInterval(() => {
-        setRemainingCooldown(prev => {
-          if (prev <= 1) {
-            clearInterval(countdownInterval);
-            return 0;
+      const qrCodeSuccessCallback = async (decodedText: string) => {
+        try {
+          // Verifica che il testo decodificato sia un barcode valido
+          if (!/^\d+$/.test(decodedText)) {
+            console.log('Codice non valido, ignoro:', decodedText);
+            return;
           }
-          return prev - 1;
-        });
-      }, 1000);
-      
-      try {
-        console.log(`Barcode scansionato: ${decodedText}`);
-        // Aggiungo log dettagliati
-        console.log(`[DEBUG] Prima di getProductByBarcode, barcode: ${decodedText}`);
-        const product = await getProductByBarcode(decodedText);
-        console.log(`[DEBUG] Dopo getProductByBarcode, prodotto trovato:`, product);
-        
-        // Informa il componente padre del prodotto trovato
-        if (product) {
-          console.log(`[DEBUG] Chiamando onProductFound con:`, product, decodedText);
-          onProductFound(product, decodedText);
-          console.log(`[DEBUG] onProductFound chiamato con successo`);
-        } else {
-          console.log(`[DEBUG] Prodotto non trovato per il barcode ${decodedText}`);
-          onProductFound(null, decodedText);
+
+          // Se siamo in cooldown, ignora la scansione
+          if (isScanCooldown) {
+            console.log('Scanner in cooldown, ignoro la scansione');
+            return;
+          }
+
+          // Ferma lo scanner durante il cooldown
+          await html5QrCode.stop();
+          setIsScanning(false);
+          
+          // Imposta il cooldown di 3 secondi
+          setIsScanCooldown(true);
+          setRemainingCooldown(3);
+          
+          const product = await getProductByBarcode(decodedText);
+          onProductScanned(product, decodedText);
+          
+          // Avvia il timer del cooldown
+          if (cooldownRef.current) {
+            clearInterval(cooldownRef.current);
+          }
+          
+          cooldownRef.current = setInterval(() => {
+            setRemainingCooldown(prev => {
+              if (prev <= 1) {
+                if (cooldownRef.current) {
+                  clearInterval(cooldownRef.current);
+                  cooldownRef.current = null;
+                }
+                setIsScanCooldown(false);
+                // Riavvia lo scanner dopo il cooldown
+                startScanner();
+                return 0;
+              }
+              return prev - 1;
+            });
+          }, 1000);
+        } catch (error) {
+          console.error('Errore durante la ricerca del prodotto:', error);
+          setErrorMessage('Errore durante la ricerca del prodotto');
+          // In caso di errore, riavvia lo scanner dopo il cooldown
+          setTimeout(() => {
+            setIsScanCooldown(false);
+            startScanner();
+          }, 3000);
         }
-        
-        // Breve pausa per evitare scansioni multiple ravvicinate
-        setTimeout(() => {
-          setIsScanCooldown(false);
-          console.log('[DEBUG] Cooldown scansione terminato, pronto per nuova scansione');
-        }, 3000); // Aumentato a 3 secondi per evitare scansioni accidentali ripetute
-      } catch (error) {
-        console.error('[DEBUG] Errore durante la ricerca del prodotto:', error);
-        setErrorMessage('Errore durante la ricerca del prodotto');
-        onProductFound(null, decodedText);
-        setTimeout(() => {
-          setIsScanCooldown(false);
-        }, 1000);
-      }
-    };
+      };
 
-    const config = { fps: 10, qrbox: { width: 250, height: 150 } };
-
-    html5QrCode.start(
-      { facingMode: "environment" }, // Usa la fotocamera posteriore se disponibile
-      config,
-      qrCodeSuccessCallback,
-      (errorMessage) => {
-        // Non mostrare errori di decodifica all'utente
-        console.log(errorMessage);
-      }
-    ).catch(err => {
-      setIsScanning(false);
+      await html5QrCode.start(
+        { facingMode: "environment" },
+        { 
+          fps: 10, 
+          qrbox: { width: 300, height: 200 },
+          aspectRatio: 1.0,
+          disableFlip: true
+        },
+        qrCodeSuccessCallback,
+        (errorMessage) => {
+          console.log(errorMessage);
+        }
+      );
+      
+      setIsScanning(true);
+    } catch (err) {
       setErrorMessage(`Errore fotocamera: ${err.message}`);
-    });
+      setIsScanning(false);
+      if (html5QrCode) {
+        await stopScanner();
+      }
+    }
   };
 
-  const stopScanner = () => {
-    if (html5QrCode && isScanning) {
-      html5QrCode.stop().then(() => {
+  const stopScanner = async () => {
+    try {
+      if (cooldownRef.current) {
+        clearInterval(cooldownRef.current);
+        cooldownRef.current = null;
+      }
+      if (html5QrCode) {
+        await html5QrCode.stop();
+        html5QrCode = null;
         setIsScanning(false);
-      }).catch(() => {
-        console.error('Errore fermando lo scanner');
-      });
+        setIsScanCooldown(false);
+        setRemainingCooldown(0);
+        setErrorMessage('');
+      }
+    } catch (err) {
+      console.error('Errore fermando lo scanner:', err);
+      setErrorMessage('Errore fermando lo scanner');
     }
   };
 
   return (
-    <div className="flex flex-col items-center w-full">
-      <div className="w-full max-w-md overflow-hidden">
-        <div id="reader" className="w-full h-56 sm:h-64 border-2 border-gray-300 rounded-lg mb-3 sm:mb-4"></div>
-      </div>
-      
-      {errorMessage && (
-        <div className="text-red-500 mb-3 sm:mb-4 text-sm sm:text-base">{errorMessage}</div>
-      )}
-      
-      <div className="flex flex-wrap justify-center gap-2 mb-3 sm:mb-4">
-        {!isScanning ? (
-          <button
-            onClick={startScanner}
-            className="bg-blue-500 hover:bg-blue-700 text-white font-bold py-2 px-3 sm:px-4 rounded text-sm sm:text-base"
-          >
-            Avvia Scanner
-          </button>
-        ) : (
-          <button
-            onClick={stopScanner}
-            className="bg-red-500 hover:bg-red-700 text-white font-bold py-2 px-3 sm:px-4 rounded text-sm sm:text-base"
-            disabled={isScanCooldown}
-          >
-            Ferma Scanner
-          </button>
+    <div className="w-full mb-4">
+      <div className="p-3 bg-blue-50 rounded-lg border border-blue-200 text-center">
+        <div className="mb-3">
+          <div className="text-blue-800 font-medium">
+            Scanner Barcode
+          </div>
+          
+          <p className="text-sm text-gray-600 mt-1">
+            {isScanning 
+              ? 'Scanner fotocamera attivo. Inquadra un codice a barre.' 
+              : 'Clicca su "Avvia Scanner" per attivare la fotocamera.'}
+          </p>
+        </div>
+        
+        <div id="reader" className={`w-full ${isScanning ? 'h-64 sm:h-80' : 'h-0'} border rounded-lg mb-3 sm:mb-4 transition-all duration-300 overflow-hidden relative`}>
+          {isScanning && (
+            <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
+              <div className="w-[90%] h-[70%] border-4 border-blue-500 rounded-lg relative opacity-50">
+                <div className="absolute -top-2 -left-2 w-8 h-8 border-t-4 border-l-4 border-blue-500"></div>
+                <div className="absolute -top-2 -right-2 w-8 h-8 border-t-4 border-r-4 border-blue-500"></div>
+                <div className="absolute -bottom-2 -left-2 w-8 h-8 border-b-4 border-l-4 border-blue-500"></div>
+                <div className="absolute -bottom-2 -right-2 w-8 h-8 border-b-4 border-r-4 border-blue-500"></div>
+              </div>
+            </div>
+          )}
+        </div>
+        
+        {errorMessage && (
+          <div className="mt-3 text-sm text-red-600 bg-red-50 p-2 rounded border border-red-200">
+            {errorMessage}
+          </div>
         )}
         
-        <button
-          onClick={toggleVolumeKeyControl}
-          className={`py-2 px-3 sm:px-4 rounded font-bold text-white text-sm sm:text-base ${
-            isVolumeKeyEnabled 
-              ? 'bg-purple-600 hover:bg-purple-700'
-              : 'bg-gray-500 hover:bg-gray-600'
-          }`}
-          disabled={isScanCooldown}
-        >
-          {isVolumeKeyEnabled ? 'Disabilita Tasti Volume' : 'Abilita Tasti Volume'}
-        </button>
-      </div>
-      
-      {isVolumeKeyEnabled && (
-        <div className="bg-purple-100 border-l-4 border-purple-500 p-2 sm:p-3 mb-3 sm:mb-4 text-xs sm:text-sm text-purple-900 w-full">
-          <p>Controllo tasti volume attivo: Premi un tasto volume per avviare/fermare lo scanner.</p>
+        <div className="flex justify-center mt-2">
+          {!isScanning ? (
+            <button
+              onClick={startScanner}
+              className="px-4 py-2 bg-blue-600 text-white font-medium rounded"
+            >
+              Avvia Scanner
+            </button>
+          ) : (
+            <button
+              onClick={stopScanner}
+              className="px-4 py-2 bg-red-600 text-white font-medium rounded"
+              disabled={isScanCooldown}
+            >
+              Ferma Scanner
+            </button>
+          )}
         </div>
-      )}
-      
-      {isScanCooldown && (
-        <div className="w-full max-w-sm mt-1 sm:mt-2 mb-3 sm:mb-4">
-          <div className="flex justify-between text-xs sm:text-sm mb-1 text-gray-600">
-            <span>Elaborazione...</span>
-            <span>{remainingCooldown}s</span>
+        
+        {isScanCooldown && (
+          <div className="mt-3">
+            <div className="flex justify-between text-xs text-gray-600 mb-1">
+              <span>Elaborazione...</span>
+              <span>{remainingCooldown}s</span>
+            </div>
+            <div className="bg-gray-200 h-2 rounded-full overflow-hidden">
+              <div 
+                className="bg-blue-500 h-full transition-all" 
+                style={{ width: `${(remainingCooldown / 3) * 100}%` }}
+              ></div>
+            </div>
           </div>
-          <div className="relative w-full h-2 bg-gray-200 rounded-full overflow-hidden">
-            <div 
-              className="absolute top-0 left-0 h-full bg-blue-500 cooldown-progress rounded-full"
-              style={{ width: `${(remainingCooldown / 3) * 100}%` }}
-            ></div>
-          </div>
-          <p className="text-xs sm:text-sm text-gray-600 mt-1 text-center">
-            Attendere il completamento prima di scansionare un altro prodotto
-          </p>
-        </div>
-      )}
-      
-      {lastBarcode && (
-        <div className="w-full max-w-sm bg-blue-50 border border-blue-200 rounded-lg p-2 sm:p-3 mb-3 sm:mb-4">
-          <p className="text-xs sm:text-sm text-gray-700">
+        )}
+        
+        {lastBarcode && (
+          <div className="mt-3 text-sm text-gray-600">
             <span className="font-medium">Ultimo barcode:</span> {lastBarcode}
-          </p>
-        </div>
-      )}
+          </div>
+        )}
+      </div>
     </div>
   );
 };

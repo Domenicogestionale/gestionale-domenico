@@ -12,7 +12,8 @@ const AddProductForm = ({ initialBarcode = '', initialQuantity = 1, onProductAdd
   const [formData, setFormData] = useState<Omit<Product, 'id'>>({
     barcode: initialBarcode,
     name: '',
-    quantity: initialQuantity
+    quantity: initialQuantity,
+    price: 0
   });
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -40,7 +41,7 @@ const AddProductForm = ({ initialBarcode = '', initialQuantity = 1, onProductAdd
     const { name, value } = e.target;
     setFormData(prev => ({
       ...prev,
-      [name]: name === 'quantity' ? parseInt(value) || 0 : value
+      [name]: name === 'quantity' || name === 'price' ? parseFloat(value) || 0 : value
     }));
   };
 
@@ -83,7 +84,8 @@ const AddProductForm = ({ initialBarcode = '', initialQuantity = 1, onProductAdd
       setFormData({
         barcode: '',
         name: '',
-        quantity: 1
+        quantity: 1,
+        price: 0
       });
       
       // Callback per il componente parent
@@ -141,6 +143,26 @@ const AddProductForm = ({ initialBarcode = '', initialQuantity = 1, onProductAdd
           disabled={isSubmitting}
           required
         />
+      </div>
+      
+      <div>
+        <label htmlFor="price" className="block text-sm sm:text-base font-medium text-gray-700 mb-1">
+          Prezzo (€)
+        </label>
+        <input
+          type="number"
+          id="price"
+          name="price"
+          value={formData.price}
+          onChange={handleChange}
+          min="0"
+          step="0.01"
+          className="w-full p-2 border border-gray-300 rounded-md focus:outline-none focus:ring-blue-500 focus:border-blue-500 text-sm sm:text-base"
+          disabled={isSubmitting}
+        />
+        <p className="text-xs text-gray-500 mt-1">
+          Imposta il prezzo di vendita del prodotto
+        </p>
       </div>
       
       <div>

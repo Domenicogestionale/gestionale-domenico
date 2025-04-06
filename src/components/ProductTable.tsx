@@ -6,12 +6,14 @@ const ProductTable = () => {
   console.log('Rendering ProductTable component');
   
   try {
-    const { products, isLoading, error, fetchProducts } = useProductStore();
+    const { products, isLoading, error, fetchProducts, updateProduct } = useProductStore();
     console.log('ProductStore values:', { products, isLoading, error });
     
     const [searchTerm, setSearchTerm] = useState('');
     const [sortColumn, setSortColumn] = useState<keyof Product>('name');
     const [sortDirection, setSortDirection] = useState<'asc' | 'desc'>('asc');
+    const [editingPrice, setEditingPrice] = useState<string | null>(null);
+    const [priceValue, setPriceValue] = useState<string>('');
 
     useEffect(() => {
       console.log('Calling fetchProducts');
@@ -56,6 +58,31 @@ const ProductTable = () => {
         console.error('Error formatting date:', error);
         return '-';
       }
+    };
+
+    const handleEditPrice = (productId: string, currentPrice?: number) => {
+      setEditingPrice(productId);
+      setPriceValue(currentPrice?.toString() || '0');
+    };
+
+    const handleSavePrice = async (productId: string) => {
+      try {
+        const newPrice = parseFloat(priceValue);
+        if (isNaN(newPrice) || newPrice < 0) {
+          alert('Inserisci un prezzo valido');
+          return;
+        }
+
+        await updateProduct(productId, { price: newPrice });
+        setEditingPrice(null);
+      } catch (error) {
+        console.error('Errore nell\'aggiornamento del prezzo:', error);
+        alert('Errore nell\'aggiornamento del prezzo');
+      }
+    };
+
+    const handleCancelEdit = () => {
+      setEditingPrice(null);
     };
 
     if (isLoading) {
@@ -108,6 +135,15 @@ const ProductTable = () => {
                   <span className="ml-1">{sortDirection === 'asc' ? '↑' : '↓'}</span>
                 )}
               </th>
+              <th 
+                className="py-2 px-4 border cursor-pointer"
+                onClick={() => handleSort('price')}
+              >
+                Prezzo (€)
+                {sortColumn === 'price' && (
+                  <span className="ml-1">{sortDirection === 'asc' ? '↑' : '↓'}</span>
+                )}
+              </th>
               <th className="py-2 px-4 border">
                 Ultimo Aggiornamento
               </th>
@@ -119,6 +155,43 @@ const ProductTable = () => {
                 <td className="py-2 px-4 border">{product.name}</td>
                 <td className="py-2 px-4 border">{product.barcode}</td>
                 <td className="py-2 px-4 border text-center">{product.quantity}</td>
+                <td className="py-2 px-4 border text-center">
+                  {editingPrice === product.id ? (
+                    <div className="flex items-center space-x-1">
+                      <input
+                        type="number"
+                        className="w-20 p-1 border rounded"
+                        value={priceValue}
+                        onChange={(e) => setPriceValue(e.target.value)}
+                        min="0"
+                        step="0.01"
+                        autoFocus
+                      />
+                      <button 
+                        onClick={() => handleSavePrice(product.id || '')}
+                        className="p-1 bg-green-500 text-white rounded"
+                      >
+                        ✓
+                      </button>
+                      <button 
+                        onClick={handleCancelEdit}
+                        className="p-1 bg-red-500 text-white rounded"
+                      >
+                        ✗
+                      </button>
+                    </div>
+                  ) : (
+                    <div className="flex items-center justify-center space-x-1">
+                      <span>{product.price?.toFixed(2) || '0.00'}</span>
+                      <button 
+                        onClick={() => handleEditPrice(product.id || '', product.price)}
+                        className="text-blue-500 text-sm hover:text-blue-700"
+                      >
+                        ✎
+                      </button>
+                    </div>
+                  )}
+                </td>
                 <td className="py-2 px-4 border text-center">
                   {formatDate(product.updatedAt)}
                 </td>

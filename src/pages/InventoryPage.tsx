@@ -90,7 +90,8 @@ const InventoryPage = () => {
     setEditedProduct({
       name: selectedProduct.name,
       barcode: selectedProduct.barcode,
-      quantity: selectedProduct.quantity
+      quantity: selectedProduct.quantity,
+      price: selectedProduct.price
     });
     setIsEditing(true);
   };
@@ -365,6 +366,17 @@ const InventoryPage = () => {
                       )}
                     </div>
                   </th>
+                  <th 
+                    className="py-3 px-4 border-b font-semibold text-gray-700 text-center cursor-pointer hover:bg-gray-200"
+                    onClick={() => handleSort('price')}
+                  >
+                    <div className="flex items-center justify-center">
+                      Prezzo (€)
+                      {sortColumn === 'price' && (
+                        <span className="ml-1">{sortDirection === 'asc' ? '↑' : '↓'}</span>
+                      )}
+                    </div>
+                  </th>
                   <th className="py-3 px-4 border-b font-semibold text-gray-700 text-center">
                     Ultimo Aggiornamento
                   </th>
@@ -391,6 +403,9 @@ const InventoryPage = () => {
                       }`}>
                         {product.quantity}
                       </span>
+                    </td>
+                    <td className="py-3 px-4 border-b text-center text-gray-800">
+                      {product.price ? `€${product.price.toFixed(2)}` : '€0.00'}
                     </td>
                     <td className="py-3 px-4 border-b text-center text-gray-600">
                       {formatDate(product.updatedAt)}
@@ -472,6 +487,23 @@ const InventoryPage = () => {
                     ) : (
                       <p className={`font-bold ${selectedProduct.quantity <= 0 ? 'text-red-600' : 'text-green-600'}`}>
                         {selectedProduct.quantity}
+                      </p>
+                    )}
+                  </div>
+                  <div>
+                    <p className="text-sm text-gray-500 mb-1">Prezzo (€)</p>
+                    {isEditing ? (
+                      <input 
+                        type="number"
+                        value={editedProduct.price === undefined ? (selectedProduct.price || 0) : editedProduct.price}
+                        onChange={(e) => handleEditChange('price', parseFloat(e.target.value) || 0)}
+                        min="0"
+                        step="0.01"
+                        className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                      />
+                    ) : (
+                      <p className="font-bold text-blue-700">
+                        €{selectedProduct.price?.toFixed(2) || '0.00'}
                       </p>
                     )}
                   </div>

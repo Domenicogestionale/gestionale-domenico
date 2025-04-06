@@ -4,9 +4,10 @@ import ProductQuantityUpdate from '../components/ProductQuantityUpdate';
 import AddProductForm from '../components/AddProductForm';
 import { Product } from '../types/Product';
 import { useProductStore } from '../store/useProductStore';
+import { Cart, CartItem } from '../types/Cart';
 
 // Definisci i tipi di operazione
-type OperationMode = 'neutral' | 'carico' | 'scarico';
+type OperationMode = 'neutral' | 'carico' | 'scarico' | 'cassa';
 
 const ScannerPage = () => {
   const [barcode, setBarcode] = useState<string>('');
@@ -15,20 +16,39 @@ const ScannerPage = () => {
   const [quantityToUpdate, setQuantityToUpdate] = useState<number>(1);
   const [isProcessing, setIsProcessing] = useState<boolean>(false);
   const [lastOperation, setLastOperation] = useState<{
-    type: 'carico' | 'scarico';
+    type: 'carico' | 'scarico' | 'cassa';
     productName: string;
     quantity: number;
     newQuantity: number;
   } | null>(null);
+  
+  // Stato per la modalità cassa
+  const [cart, setCart] = useState<Cart>({ items: [], totalAmount: 0, itemCount: 0 });
+  const [showCheckout, setShowCheckout] = useState<boolean>(false);
+  
+  // Ogni volta che cambia il carrello, logga il suo stato
+  useEffect(() => {
+    console.log('[DEBUG CART] Carrello aggiornato:', JSON.stringify(cart));
+    console.log('[DEBUG CART] Numero elementi:', cart.items.length);
+    console.log('[DEBUG CART] Elementi:', cart.items.map(item => `${item.product.name} (${item.quantity})`));
+  }, [cart]);
+  
   // Stato per il feedback visivo
   const [modeFlash, setModeFlash] = useState<boolean>(false);
   const [quantityFlash, setQuantityFlash] = useState<boolean>(false);
+  const [cartItemFlash, setCartItemFlash] = useState<string | null>(null); // ID prodotto per animazione
   
   const { getProductByBarcode, updateProductQuantity } = useProductStore();
   
   // Resetta lo stato quando cambia la modalità operativa
   const handleModeChange = (newMode: OperationMode) => {
     if (newMode === operationMode) return; // Non fare nulla se è la stessa modalità
+    
+    // Se stiamo uscendo dalla modalità cassa, resettiamo il carrello
+    if (operationMode === 'cassa' && newMode !== 'cassa') {
+      setCart({ items: [], totalAmount: 0, itemCount: 0 });
+      setShowCheckout(false);
+    }
     
     setOperationMode(newMode);
     // Rimuovi il prodotto attualmente visualizzato quando cambia la modalità
@@ -80,47 +100,220 @@ const ScannerPage = () => {
         // In modalità scarico, sottrai automaticamente la quantità
         console.log(`[DEBUG] Scaricando ${currentQuantity} unità del prodotto ${product.name}`);
         await handleProductUpdate(product, currentQuantity, 'scarico');
+      } else if (operationMode === 'cassa') {
+        // In modalità cassa, aggiungi automaticamente al carrello
+        console.log('[DEBUG] Modalità cassa: aggiungo automaticamente al carrello');
+        handleAddToCart(product, currentQuantity);
       }
     }
   };
   
-  // Trova un prodotto dal codice a barre (input manuale)
-  const handleScan = async () => {
-    if (!barcode || isProcessing) return;
-    
+  // Gestisci l'aggiunta di un prodotto al carrello
+  const handleAddToCart = async (product: Product, quantity: number) => {
+    if (isProcessing) return;
     setIsProcessing(true);
+    
     try {
-      // Cerca il prodotto nel database
-      const product = await getProductByBarcode(barcode);
-      setProductFound(product);
+      console.log('[DEBUG] ========== INIZIO AGGIUNTA AL CARRELLO ==========');
+      console.log('[DEBUG] Prodotto:', product.name, 'Barcode:', product.barcode);
+      console.log('[DEBUG] Quantità da aggiungere:', quantity);
+      console.log('[DEBUG] Stato corrente del carrello:');
+      console.log('[DEBUG] - Numero elementi:', cart.items.length);
+      console.log('[DEBUG] - Elenco prodotti:', cart.items.map(item => item.product.name).join(', '));
       
-      // Se troviamo il prodotto, gestiamo in base alla modalità selezionata
-      if (product) {
-        // Usa la quantità corrente in questo momento, non quella memorizzata in precedenza
-        const currentQuantity = quantityToUpdate;
-        console.log(`[DEBUG] handleScan - Quantità: ${currentQuantity}, Modalità: ${operationMode}`);
-
-        if (operationMode === 'neutral') {
-          // In modalità neutrale, solo visualizza il prodotto
-          console.log('[DEBUG] Modalità neutrale: visualizzazione prodotto', product);
-        } else if (operationMode === 'carico') {
-          // In modalità carico, aggiungi automaticamente la quantità
-          console.log(`[DEBUG] Caricando ${currentQuantity} unità del prodotto ${product.name}`);
-          await handleProductUpdate(product, currentQuantity, 'carico');
-        } else if (operationMode === 'scarico') {
-          // In modalità scarico, sottrai automaticamente la quantità
-          console.log(`[DEBUG] Scaricando ${currentQuantity} unità del prodotto ${product.name}`);
-          await handleProductUpdate(product, currentQuantity, 'scarico');
-        }
+      // Assicuriamoci che la quantità sia un numero valido
+      const safeQuantity = Math.max(1, Math.floor(Number(quantity)));
+      
+      // Verifica che ci sia quantità sufficiente
+      if (product.quantity < safeQuantity) {
+        alert(`Attenzione: Sono disponibili solo ${product.quantity} unità di ${product.name}`);
+        setIsProcessing(false);
+        return;
       }
+      
+      // Calcola il prezzo totale per questo prodotto
+      const price = product.price ?? 0;
+      const productTotal = price * safeQuantity;
+      
+      // Utilizziamo il pattern funzionale per setState per garantire che utilizziamo
+      // sempre l'ultimo stato del carrello anziché uno snapshot potenzialmente obsoleto
+      setCart(prevCart => {
+        console.log('[DEBUG] Aggiornamento del carrello usando callback funzionale');
+        console.log('[DEBUG] - Stato prevCart:', prevCart.items.length, 'elementi');
+        
+        // Copia profonda degli elementi attuali del carrello
+        const currentItems = [...prevCart.items];
+        
+        // Cerca se il prodotto esiste già nel carrello
+        const existingIndex = currentItems.findIndex(item => 
+          item.product.barcode === product.barcode
+        );
+        console.log('[DEBUG] Prodotto già nel carrello?', existingIndex >= 0 ? `Sì, all'indice ${existingIndex}` : 'No');
+        
+        let updatedItems;
+        
+        if (existingIndex >= 0) {
+          // Il prodotto esiste già, aggiorna la quantità
+          console.log('[DEBUG] Aggiornando elemento esistente');
+          updatedItems = [...currentItems]; // Crea una nuova copia per l'immutabilità
+          
+          const updatedItem = {
+            ...currentItems[existingIndex],
+            quantity: currentItems[existingIndex].quantity + safeQuantity,
+            totalPrice: (currentItems[existingIndex].quantity + safeQuantity) * price
+          };
+          
+          updatedItems[existingIndex] = updatedItem;
+          console.log('[DEBUG] Elemento aggiornato con nuova quantità:', updatedItem.quantity);
+        } else {
+          // Il prodotto non esiste, aggiungilo come nuovo
+          console.log('[DEBUG] Aggiungendo nuovo elemento al carrello');
+          const newItem = {
+            product,
+            quantity: safeQuantity,
+            totalPrice: productTotal
+          };
+          
+          // Aggiungi il nuovo elemento alla lista esistente
+          updatedItems = [...currentItems, newItem];
+          console.log('[DEBUG] Nuovo elemento aggiunto:', newItem.product.name);
+        }
+        
+        // Calcola i nuovi totali
+        const newTotalAmount = updatedItems.reduce((sum, item) => sum + item.totalPrice, 0);
+        const newItemCount = updatedItems.reduce((sum, item) => sum + item.quantity, 0);
+        
+        // Crea il nuovo oggetto carrello
+        const updatedCart = {
+          items: updatedItems,
+          totalAmount: newTotalAmount,
+          itemCount: newItemCount
+        };
+        
+        console.log('[DEBUG] Nuovo carrello creato');
+        console.log('[DEBUG] - Numero elementi nel nuovo carrello:', updatedCart.items.length);
+        console.log('[DEBUG] - Prodotti nel nuovo carrello:', updatedCart.items.map(item => item.product.name).join(', '));
+        
+        // Ritorna il nuovo stato del carrello
+        return updatedCart;
+      });
+      
+      // Feedback visivo per l'elemento aggiunto
+      setCartItemFlash(product.id ?? product.barcode);
+      setTimeout(() => setCartItemFlash(null), 800);
+      
+      // Aggiorna lo stato dell'ultima operazione
+      setLastOperation({
+        type: 'cassa',
+        productName: product.name,
+        quantity: safeQuantity,
+        newQuantity: product.quantity
+      });
+      
+      console.log('[DEBUG] ========== FINE AGGIUNTA AL CARRELLO ==========');
     } catch (error) {
-      console.error('[DEBUG] Errore nella scansione:', error);
-      setProductFound(null);
+      console.error('[DEBUG] Errore nell\'aggiunta al carrello:', error);
     } finally {
       setIsProcessing(false);
     }
   };
   
+  // Rimuovi un prodotto dal carrello
+  const handleRemoveFromCart = (index: number) => {
+    if (isProcessing) return;
+    
+    console.log('[DEBUG] ========== INIZIO RIMOZIONE DAL CARRELLO ==========');
+    console.log('[DEBUG] Rimozione prodotto con indice:', index);
+    console.log('[DEBUG] Carrello attuale:', JSON.stringify(cart));
+    
+    // Crea un nuovo array senza il prodotto da rimuovere
+    const updatedItems = [...cart.items];
+    const removedItem = updatedItems[index];
+    
+    // Rimuovi l'elemento dall'array
+    if (index >= 0 && index < updatedItems.length) {
+      updatedItems.splice(index, 1);
+      
+      // Calcola i nuovi totali
+      const newTotalAmount = updatedItems.reduce((sum, item) => sum + item.totalPrice, 0);
+      const newItemCount = updatedItems.reduce((sum, item) => sum + item.quantity, 0);
+      
+      // Crea il nuovo oggetto carrello
+      const updatedCart = {
+        items: updatedItems,
+        totalAmount: newTotalAmount,
+        itemCount: newItemCount
+      };
+      
+      console.log('[DEBUG] Nuovo carrello dopo rimozione:', JSON.stringify(updatedCart));
+      
+      // Aggiorna il carrello con i nuovi valori
+      setCart(updatedCart);
+      
+      console.log(`[DEBUG] Prodotto rimosso dal carrello con successo`);
+    } else {
+      console.error('[DEBUG] Indice di rimozione non valido:', index);
+    }
+    
+    console.log('[DEBUG] ========== FINE RIMOZIONE DAL CARRELLO ==========');
+  };
+  
+  // Completa l'acquisto e scarica i prodotti dall'inventario
+  const handleCheckout = async () => {
+    if (isProcessing || cart.items.length === 0) return;
+    setIsProcessing(true);
+    
+    try {
+      console.log('[DEBUG] Inizio processo di checkout');
+      console.log('[DEBUG] Prodotti nel carrello:', cart.items);
+      
+      // Verifica che tutti i prodotti abbiano quantità sufficiente
+      for (const item of cart.items) {
+        const product = await getProductByBarcode(item.product.barcode);
+        if (!product) {
+          console.error(`[DEBUG] Prodotto non trovato: ${item.product.barcode}`);
+          throw new Error(`Prodotto ${item.product.name} non trovato nell'inventario`);
+        }
+        if (product.quantity < item.quantity) {
+          throw new Error(`Quantità insufficiente per ${item.product.name}. Disponibili: ${product.quantity}`);
+        }
+      }
+      
+      // Scarica ciascun prodotto dall'inventario
+      for (const item of cart.items) {
+        console.log(`[DEBUG] Scaricando ${item.quantity} unità di ${item.product.name}`);
+        try {
+          await updateProductQuantity(item.product.barcode, item.quantity, false);
+          console.log(`[DEBUG] Quantità aggiornata con successo per ${item.product.name}`);
+        } catch (error) {
+          console.error(`[DEBUG] Errore durante lo scarico di ${item.product.name}:`, error);
+          throw new Error(`Errore durante lo scarico di ${item.product.name}: ${error.message}`);
+        }
+      }
+      
+      // Feedback di successo
+      alert(`Pagamento completato con successo!\nTotale: €${cart.totalAmount.toFixed(2)}\nGrazie per l'acquisto!`);
+      
+      // Resetta il carrello e chiudi la finestra di checkout
+      setCart({ items: [], totalAmount: 0, itemCount: 0 });
+      setShowCheckout(false);
+      
+    } catch (error) {
+      console.error('[DEBUG] Errore durante il checkout:', error);
+      alert(`Errore durante il checkout: ${error.message}`);
+    } finally {
+      setIsProcessing(false);
+    }
+  };
+  
+  // Annulla l'acquisto e svuota il carrello
+  const handleCancelCheckout = () => {
+    if (window.confirm('Sei sicuro di voler annullare l\'acquisto? Il carrello verrà svuotato.')) {
+      setCart({ items: [], totalAmount: 0, itemCount: 0 });
+      setShowCheckout(false);
+    }
+  };
+
   // Gestisci l'aggiornamento della quantità del prodotto
   const handleProductUpdate = async (product: Product, quantity: number, type: 'carico' | 'scarico') => {
     if (isProcessing) return;
@@ -211,233 +404,414 @@ const ScannerPage = () => {
     console.log(`Quantità cambiata a: ${validQuantity} in modalità: ${operationMode}`);
   };
 
-  return (
-    <div className="container mx-auto px-2 sm:px-4 py-4 sm:py-8">
-      <h1 className="text-xl sm:text-2xl font-bold mb-4 sm:mb-6">Scanner Prodotti</h1>
-      
-      {/* Modalità Operativa */}
-      <div className={`bg-white rounded-lg shadow-md p-4 sm:p-6 mb-4 sm:mb-6 transition-all duration-300 ${modeFlash ? 'bg-yellow-50' : ''}`}>
-        <h2 className="text-lg sm:text-xl font-semibold mb-3 sm:mb-4">Modalità Operativa</h2>
-        <div className="flex flex-wrap gap-2 sm:gap-3 mb-4">
-          <button
-            onClick={() => handleModeChange('neutral')}
-            className={`px-3 py-2 rounded-lg font-bold text-white shadow-md transition-all text-sm sm:text-base ${
-              operationMode === 'neutral'
-                ? 'bg-gray-700 ring-4 ring-gray-300'
-                : 'bg-gray-500 hover:bg-gray-600'
-            }`}
-          >
-            Modalità Neutrale
-          </button>
-          <button
-            onClick={() => handleModeChange('carico')}
-            className={`px-3 py-2 rounded-lg font-bold text-white shadow-md transition-all text-sm sm:text-base ${
-              operationMode === 'carico'
-                ? 'bg-green-700 ring-4 ring-green-300'
-                : 'bg-green-500 hover:bg-green-600'
-            }`}
-          >
-            Modalità Carico
-          </button>
-          <button
-            onClick={() => handleModeChange('scarico')}
-            className={`px-3 py-2 rounded-lg font-bold text-white shadow-md transition-all text-sm sm:text-base ${
-              operationMode === 'scarico'
-                ? 'bg-red-700 ring-4 ring-red-300'
-                : 'bg-red-500 hover:bg-red-600'
-            }`}
-          >
-            Modalità Scarico
-          </button>
-        </div>
+  // Gestisce l'input manuale del codice a barre
+  const handleScan = async () => {
+    if (!barcode || isProcessing) return;
+    setIsProcessing(true);
+    
+    try {
+      console.log(`[DEBUG] Ricerca manuale barcode: ${barcode}`);
+      const product = await getProductByBarcode(barcode);
+      onProductFound(product, barcode);
+    } catch (error) {
+      console.error('[DEBUG] Errore nella ricerca manuale:', error);
+    } finally {
+      setIsProcessing(false);
+    }
+  };
 
-        {/* Spiegazione modalità corrente */}
-        <div className={`p-3 sm:p-4 rounded-lg border text-sm sm:text-base ${
-          operationMode === 'neutral' ? 'bg-gray-50 border-gray-300 text-gray-700' :
-          operationMode === 'carico' ? 'bg-green-50 border-green-300 text-green-800' :
-          'bg-red-50 border-red-300 text-red-800'
-        }`}>
-          <p className="font-medium">
-            {operationMode === 'neutral' && 'Modalità Neutrale: Scansiona un prodotto per visualizzare i dettagli senza modificare quantità.'}
-            {operationMode === 'carico' && 'Modalità Carico: Scansiona prodotti per caricarli automaticamente in magazzino con la quantità specificata.'}
-            {operationMode === 'scarico' && 'Modalità Scarico: Scansiona prodotti per scaricarli automaticamente dal magazzino con la quantità specificata.'}
-          </p>
+  // Callback usato dal componente BarcodeScanner quando trova un prodotto
+  const onProductFound = (product: Product | null, scannedBarcode: string) => {
+    console.log('[DEBUG] Prodotto trovato:', product);
+    console.log('[DEBUG] Modalità operativa:', operationMode);
+    console.log('[DEBUG] Numero elementi nel carrello:', cart.items.length);
+    
+    if (!product) {
+      console.log('[DEBUG] Nessun prodotto trovato per il barcode:', scannedBarcode);
+      return;
+    }
+    
+    // Mantieni il prodotto precedentemente scansionato visualizzato 
+    // ma aggiorna il barcode attuale
+    setProductFound(product);
+    setBarcode(scannedBarcode);
+    
+    // Se troviamo il prodotto, gestiamo in base alla modalità selezionata
+    if (operationMode === 'carico') {
+      // In modalità carico, aggiorna la quantità
+      handleProductUpdate(product, quantityToUpdate, 'carico');
+    } else if (operationMode === 'scarico') {
+      // In modalità scarico, verifica la disponibilità e aggiorna
+      if (product.quantity >= quantityToUpdate) {
+        handleProductUpdate(product, quantityToUpdate, 'scarico');
+      } else {
+        alert(`Quantità insufficiente per ${product.name}. Disponibili: ${product.quantity}`);
+      }
+    } else if (operationMode === 'cassa') {
+      // In modalità cassa, aggiungi automaticamente al carrello
+      console.log('[DEBUG] Modalità cassa: aggiungo automaticamente al carrello');
+      handleAddToCart(product, quantityToUpdate);
+    }
+  };
+
+  // Ripristina la pagina alle impostazioni predefinite
+  const handleReset = () => {
+    setBarcode('');
+    setProductFound(null);
+    setOperationMode('neutral');
+    setQuantityToUpdate(1);
+    setCart({ items: [], totalAmount: 0, itemCount: 0 });
+    setShowCheckout(false);
+    setLastOperation(null);
+  };
+
+  return (
+    <div className="container mx-auto px-4 py-6">
+      <h1 className="text-2xl sm:text-3xl font-bold mb-4 text-center sm:text-left">Scanner Prodotti</h1>
+      
+      {/* Pulsanti per la selezione della modalità - Layout mobile-first responsive */}
+      <div className={`grid grid-cols-2 sm:flex sm:flex-wrap gap-2 mb-4 p-2 rounded transition-colors ${modeFlash ? 'bg-blue-100' : ''}`}>
+        <button
+          onClick={() => handleModeChange('neutral')}
+          className={`px-3 py-2 rounded shadow text-center text-sm sm:text-base ${operationMode === 'neutral' ? 'bg-blue-600 text-white' : 'bg-gray-200'}`}
+        >
+          Visualizzazione
+        </button>
+        <button
+          onClick={() => handleModeChange('carico')}
+          className={`px-3 py-2 rounded shadow text-center text-sm sm:text-base ${operationMode === 'carico' ? 'bg-green-600 text-white' : 'bg-gray-200'}`}
+        >
+          Carico
+        </button>
+        <button
+          onClick={() => handleModeChange('scarico')}
+          className={`px-3 py-2 rounded shadow text-center text-sm sm:text-base ${operationMode === 'scarico' ? 'bg-red-600 text-white' : 'bg-gray-200'}`}
+        >
+          Scarico
+        </button>
+        <button
+          onClick={() => handleModeChange('cassa')}
+          className={`px-3 py-2 rounded shadow text-center text-sm sm:text-base ${operationMode === 'cassa' ? 'bg-purple-600 text-white' : 'bg-gray-200'}`}
+        >
+          Cassa
+        </button>
+      </div>
+      
+      {/* Selezione della quantità */}
+      <div className={`p-3 rounded-lg border mb-4 transition-colors ${quantityFlash ? 'bg-yellow-100 border-yellow-300' : 'border-gray-200'}`}>
+        <label className="block mb-2 font-medium">
+          Quantità da {operationMode === 'carico' ? 'caricare' : 
+                      operationMode === 'scarico' ? 'scaricare' : 
+                      operationMode === 'cassa' ? 'aggiungere' : 'visualizzare'}:
+        </label>
+        <div className="flex items-center gap-2">
+          <button 
+            onClick={() => handleQuantityChange(Math.max(1, quantityToUpdate - 1))}
+            className="w-10 h-10 flex items-center justify-center bg-gray-200 rounded text-xl font-bold"
+            disabled={quantityToUpdate <= 1}
+          >
+            -
+          </button>
+          <input
+            type="number"
+            value={quantityToUpdate}
+            onChange={(e) => handleQuantityChange(parseInt(e.target.value) || 1)}
+            min="1"
+            className="w-16 px-2 py-2 border rounded text-center"
+          />
+          <button 
+            onClick={() => handleQuantityChange(quantityToUpdate + 1)}
+            className="w-10 h-10 flex items-center justify-center bg-gray-200 rounded text-xl font-bold"
+          >
+            +
+          </button>
         </div>
       </div>
-
-      {/* Quantità per modalità operative */}
-      {operationMode !== 'neutral' && (
-        <div className={`bg-white rounded-lg shadow-md p-4 sm:p-6 mb-4 sm:mb-6 transition-all duration-300 ${quantityFlash ? 'bg-blue-50' : ''}`}>
-          <h2 className="text-base sm:text-lg font-semibold mb-2">Quantità per {operationMode === 'carico' ? 'carico' : 'scarico'}</h2>
-          <div className="flex items-center">
-            <button 
-              onClick={() => handleQuantityChange(Math.max(1, quantityToUpdate - 1))}
-              className="px-3 py-1 bg-gray-200 hover:bg-gray-300 rounded-l-lg font-bold text-gray-700"
-            >
-              -
-            </button>
-            <input
-              type="number"
-              value={quantityToUpdate}
-              onChange={(e) => {
-                const val = parseInt(e.target.value);
-                if (!isNaN(val) && val > 0) {
-                  handleQuantityChange(val);
-                } else if (e.target.value === '') {
-                  // Permette di cancellare il campo per inserire un nuovo valore
-                  handleQuantityChange(1);
-                }
-              }}
-              onFocus={(e) => e.target.select()} // Seleziona tutto il testo quando si clicca
-              min="1"
-              className="w-16 sm:w-20 text-center py-1 border-t border-b border-gray-300 focus:outline-none focus:ring-2 focus:ring-blue-500"
-            />
-            <button 
-              onClick={() => handleQuantityChange(quantityToUpdate + 1)}
-              className="px-3 py-1 bg-gray-200 hover:bg-gray-300 rounded-r-lg font-bold text-gray-700"
-            >
-              +
-            </button>
-          </div>
-          <p className="text-xs sm:text-sm text-gray-600 mt-2">
-            Nota: Ogni scansione {operationMode === 'carico' ? 'caricherà' : 'scaricherà'} 
-            <strong className="mx-1">{quantityToUpdate}</strong> 
-            unità del prodotto scansionato. Puoi modificare questa quantità in qualsiasi momento.
-          </p>
-        </div>
-      )}
-
-      {/* Feedback ultima operazione */}
-      {lastOperation && (
-        <div className={`bg-white rounded-lg shadow-md p-4 sm:p-6 mb-4 sm:mb-6 border-l-4 ${
-          lastOperation.type === 'carico' ? 'border-green-500' : 'border-red-500'
-        }`}>
-          <h2 className="text-base sm:text-lg font-semibold mb-2">Ultima operazione</h2>
-          <p className="font-medium text-sm sm:text-base">
-            {lastOperation.type === 'carico' 
-              ? `Caricato: ${lastOperation.quantity} × ${lastOperation.productName}`
-              : `Scaricato: ${lastOperation.quantity} × ${lastOperation.productName}`
-            }
-          </p>
-          <p className="text-xs sm:text-sm text-gray-600 mt-1">
-            Nuova quantità in magazzino: <span className={`font-bold ${
-              lastOperation.newQuantity <= 0 ? 'text-red-600' : 'text-green-600'
-            }`}>{lastOperation.newQuantity}</span>
-          </p>
-        </div>
-      )}
       
-      {isProcessing && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-10">
-          <div className="bg-white p-4 sm:p-6 rounded-lg shadow-lg text-center mx-4">
-            <p className="text-base sm:text-lg font-semibold mb-2">Elaborazione in corso...</p>
-            <div className="w-6 h-6 sm:w-8 sm:h-8 border-4 border-blue-500 border-t-transparent rounded-full animate-spin mx-auto"></div>
+      {/* Layout a due colonne per desktop, colonna singola per mobile */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+        <div>
+          {/* Componente di scansione */}
+          <div className="mb-4 bg-white rounded-lg shadow p-4">
+            <h2 className="text-lg font-bold mb-3">Scanner Automatico</h2>
+            <BarcodeScanner onProductScanned={onProductFound} />
           </div>
-        </div>
-      )}
-
-      {/* Scanner e Form */}
-      <div className="bg-white rounded-lg shadow-md p-4 sm:p-6">
-        <h2 className="text-lg sm:text-xl font-semibold mb-3 sm:mb-4">Scansiona Codice a Barre</h2>
-        
-        {/* Scanner automatico */}
-        <div className="mb-6 sm:mb-8 overflow-hidden">
-          <BarcodeScanner onProductFound={handleProductScanned} />
-        </div>
-        
-        <div className="border-t border-gray-200 pt-4 sm:pt-6 mt-4 sm:mt-6">
-          <h3 className="text-base sm:text-lg font-semibold mb-3">Inserimento Manuale</h3>
-          <div className="flex flex-col sm:flex-row mb-4 gap-2 sm:gap-0">
-            <input
-              type="text"
-              value={barcode}
-              onChange={(e) => setBarcode(e.target.value)}
-              placeholder="Inserisci codice a barre"
-              className="w-full px-4 py-2 border border-gray-300 rounded-lg sm:rounded-l-lg sm:rounded-r-none focus:outline-none focus:ring-2 focus:ring-blue-500"
-            />
-            <button
-              onClick={handleScan}
-              disabled={!barcode || isProcessing}
-              className={`w-full sm:w-auto px-4 py-2 sm:rounded-l-none rounded-lg sm:rounded-r-lg font-bold text-white ${
-                !barcode || isProcessing
-                  ? 'bg-gray-300 cursor-not-allowed'
-                  : 'bg-blue-500 hover:bg-blue-600'
-              }`}
-            >
-              Cerca
-            </button>
-          </div>
-        </div>
-        
-        {/* Risultato della scansione o ricerca */}
-        {productFound ? (
-          <div className="mt-4 sm:mt-6 p-3 sm:p-4 border border-gray-200 rounded-lg bg-gray-50">
-            <h3 className="font-bold text-base sm:text-lg mb-2">{productFound.name}</h3>
-            <p className="text-xs sm:text-sm mb-1"><span className="font-semibold">Barcode:</span> {productFound.barcode}</p>
-            <p className="mb-3 text-sm">
-              <span className="font-semibold">Quantità in magazzino:</span> 
-              <span className={`ml-1 font-bold ${
-                productFound.quantity <= 0 ? 'text-red-600' : 'text-green-600'
-              }`}>{productFound.quantity}</span>
-            </p>
-            
-            {/* Opzioni per il prodotto trovato */}
-            {operationMode === 'neutral' ? (
-              <div className="mt-3 sm:mt-4 flex space-x-2">
-                <button
-                  onClick={() => handleProductUpdate(productFound, quantityToUpdate, 'carico')}
-                  className="flex-1 px-3 py-2 bg-green-500 hover:bg-green-600 text-white font-bold rounded-lg text-sm sm:text-base"
-                >
-                  Carica
-                </button>
-                <button
-                  onClick={() => handleProductUpdate(productFound, quantityToUpdate, 'scarico')}
-                  className="flex-1 px-3 py-2 bg-red-500 hover:bg-red-600 text-white font-bold rounded-lg text-sm sm:text-base"
-                  disabled={productFound.quantity <= 0}
-                >
-                  Scarica
-                </button>
-              </div>
-            ) : (
-              // In modalità carico o scarico aggiungiamo un pulsante per ripetere l'operazione
-              <div className="mt-3 sm:mt-4">
-                <button
-                  onClick={() => handleProductUpdate(productFound, quantityToUpdate, operationMode as 'carico' | 'scarico')}
-                  className={`w-full px-3 py-2 font-bold text-white rounded-lg text-sm sm:text-base ${
-                    operationMode === 'carico' 
-                      ? 'bg-green-500 hover:bg-green-600' 
-                      : (productFound.quantity <= 0 
-                          ? 'bg-gray-400 cursor-not-allowed' 
-                          : 'bg-red-500 hover:bg-red-600')
-                  }`}
-                  disabled={operationMode === 'scarico' && productFound.quantity <= 0}
-                >
-                  {operationMode === 'carico' 
-                    ? `Carica ${quantityToUpdate} unità` 
-                    : `Scarica ${quantityToUpdate} unità`}
-                </button>
-                <p className="text-xs sm:text-sm text-gray-600 mt-2 text-center">
-                  Puoi modificare la quantità sopra e ripetere l'operazione.
-                </p>
-              </div>
-            )}
-          </div>
-        ) : barcode ? (
-          <div className="mt-4 sm:mt-6">
-            <div className="p-3 sm:p-4 bg-yellow-50 border border-yellow-300 rounded-lg">
-              <p className="font-medium text-yellow-800 text-sm sm:text-base">Prodotto non trovato con questo codice a barre.</p>
-              <p className="mt-2 text-sm sm:text-base">Vuoi aggiungere un nuovo prodotto con barcode <strong>{barcode}</strong>?</p>
-              
-              <div className="mt-3 sm:mt-4">
-                <AddProductForm
-                  initialBarcode={barcode}
-                  onProductAdded={handleProductAdded}
-                />
-              </div>
+          
+          {/* Input manuale del codice a barre */}
+          <div className="mb-4 bg-white rounded-lg shadow p-4">
+            <h2 className="text-lg font-bold mb-3">Inserimento Manuale</h2>
+            <div className="flex gap-2">
+              <input
+                type="text"
+                value={barcode}
+                onChange={(e) => setBarcode(e.target.value)}
+                placeholder="Inserisci codice a barre"
+                className="flex-1 px-3 py-2 border rounded"
+              />
+              <button 
+                onClick={handleScan}
+                disabled={!barcode || isProcessing}
+                className="px-3 py-2 bg-blue-600 text-white rounded disabled:bg-gray-400"
+              >
+                Cerca
+              </button>
             </div>
           </div>
-        ) : null}
+          
+          {/* Feedback ultima operazione */}
+          {lastOperation && (
+            <div className={`p-4 mb-4 rounded-lg shadow border ${
+              lastOperation.type === 'carico' ? 'bg-green-50 border-green-200' : 
+              lastOperation.type === 'scarico' ? 'bg-red-50 border-red-200' : 
+              'bg-purple-50 border-purple-200'
+            }`}>
+              <h3 className="font-bold mb-1">Ultima Operazione</h3>
+              <p className="font-medium">
+                {lastOperation.type === 'carico' ? 'Caricato: ' : 
+                lastOperation.type === 'scarico' ? 'Scaricato: ' : 
+                'Aggiunto al carrello: '}
+                <span className="font-bold">{lastOperation.productName}</span> 
+                ({lastOperation.quantity} {lastOperation.quantity === 1 ? 'unità' : 'unità'})
+              </p>
+              {lastOperation.type !== 'cassa' && (
+                <p className="text-sm mt-1">
+                  Quantità attuale: <span className="font-semibold">{lastOperation.newQuantity}</span> unità
+                </p>
+              )}
+            </div>
+          )}
+          
+          {/* Mostra dettagli del prodotto trovato */}
+          {productFound && (
+            <div className="p-4 mb-4 border rounded-lg bg-white shadow">
+              <h2 className="text-xl font-semibold mb-2">Prodotto Trovato</h2>
+              <p className="text-sm text-gray-600 mb-3">Codice: {productFound.barcode}</p>
+              
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-4">
+                <div>
+                  <h3 className="font-bold text-lg">{productFound.name}</h3>
+                  <p className="font-medium mt-2">Quantità: <span className="font-bold">{productFound.quantity}</span></p>
+                  {productFound.price && (
+                    <p className="font-medium mt-1">Prezzo: <span className="font-bold">€{productFound.price.toFixed(2)}</span></p>
+                  )}
+                </div>
+                
+                <div className="flex flex-wrap gap-2 items-center justify-center sm:justify-end">
+                  {operationMode === 'carico' && (
+                    <button
+                      onClick={() => handleProductUpdate(productFound, quantityToUpdate, 'carico')}
+                      disabled={isProcessing}
+                      className="w-full sm:w-auto px-4 py-2 bg-green-600 text-white rounded-lg disabled:bg-gray-400"
+                    >
+                      Carica {quantityToUpdate} unità
+                    </button>
+                  )}
+                  
+                  {operationMode === 'scarico' && (
+                    <button
+                      onClick={() => handleProductUpdate(productFound, quantityToUpdate, 'scarico')}
+                      disabled={isProcessing || productFound.quantity < quantityToUpdate}
+                      className="w-full sm:w-auto px-4 py-2 bg-red-600 text-white rounded-lg disabled:bg-gray-400"
+                    >
+                      Scarica {quantityToUpdate} unità
+                    </button>
+                  )}
+                  
+                  {operationMode === 'cassa' && (
+                    <button
+                      onClick={() => handleAddToCart(productFound, quantityToUpdate)}
+                      disabled={isProcessing || productFound.quantity < quantityToUpdate}
+                      className="w-full sm:w-auto px-4 py-2 bg-purple-600 text-white rounded-lg disabled:bg-gray-400"
+                    >
+                      Aggiungi al carrello
+                    </button>
+                  )}
+                </div>
+              </div>
+            </div>
+          )}
+        </div>
+        
+        <div>
+          {/* Sezione modalità cassa */}
+          {operationMode === 'cassa' && (
+            <div className="border rounded-lg p-4 bg-white shadow mb-4">
+              <div className="flex justify-between items-center mb-3">
+                <h2 className="text-xl font-semibold">Carrello</h2>
+                <div className="text-right">
+                  <p className="font-bold text-lg text-purple-700">
+                    Totale: €{cart.totalAmount.toFixed(2)}
+                  </p>
+                  <p className="text-sm text-gray-600">
+                    {cart.itemCount} {cart.itemCount === 1 ? 'articolo' : 'articoli'}
+                  </p>
+                  <p className="text-xs text-gray-500">
+                    {cart.items.length} prodotti diversi nel carrello
+                  </p>
+                </div>
+              </div>
+              
+              {cart.items.length === 0 ? (
+                <div className="bg-gray-50 border border-gray-200 rounded-lg p-6 text-center">
+                  <p className="text-gray-500 mb-2">Il carrello è vuoto</p>
+                  <p className="text-sm text-gray-400">Scansiona un prodotto per aggiungerlo</p>
+                </div>
+              ) : (
+                <>
+                  {/* Debug info (visibile solo in sviluppo) */}
+                  <div className="bg-yellow-50 p-2 mb-2 text-xs border border-yellow-200 rounded">
+                    <p>Debug: Prodotti nel carrello: {cart.items.length}</p>
+                    <p>Nomi: {cart.items.map(item => item.product.name).join(', ')}</p>
+                    <p>ID Prodotti: {cart.items.map(item => item.product.id || item.product.barcode).join(', ')}</p>
+                  </div>
+                  
+                  <div className="max-h-96 overflow-y-auto mb-4 border rounded-lg">
+                    <table className="min-w-full divide-y divide-gray-200">
+                      <thead className="bg-gray-50">
+                        <tr>
+                          <th scope="col" className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Prodotto</th>
+                          <th scope="col" className="px-3 py-2 text-center text-xs font-medium text-gray-500 uppercase tracking-wider">Prezzo</th>
+                          <th scope="col" className="px-3 py-2 text-center text-xs font-medium text-gray-500 uppercase tracking-wider">Qtà</th>
+                          <th scope="col" className="px-3 py-2 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Totale</th>
+                          <th scope="col" className="px-3 py-2 text-center text-xs font-medium text-gray-500 uppercase tracking-wider"></th>
+                        </tr>
+                      </thead>
+                      <tbody className="bg-white divide-y divide-gray-200">
+                        {cart.items.map((item, index) => (
+                          <tr 
+                            key={`${item.product.id || item.product.barcode}-${index}`}
+                            className={`transition-colors ${
+                              cartItemFlash === (item.product.id || item.product.barcode) ? 'bg-purple-50' : ''
+                            }`}
+                          >
+                            <td className="px-3 py-2 whitespace-nowrap">
+                              <div className="text-sm font-medium text-gray-900">{item.product.name}</div>
+                              <div className="text-xs text-gray-500">{item.product.barcode}</div>
+                            </td>
+                            <td className="px-3 py-2 whitespace-nowrap text-center text-sm text-gray-500">
+                              €{item.product.price?.toFixed(2) || "0.00"}
+                            </td>
+                            <td className="px-3 py-2 whitespace-nowrap text-center text-sm text-gray-500">
+                              {item.quantity}
+                            </td>
+                            <td className="px-3 py-2 whitespace-nowrap text-right text-sm font-medium text-gray-900">
+                              €{item.totalPrice.toFixed(2)}
+                            </td>
+                            <td className="px-3 py-2 whitespace-nowrap text-right text-sm font-medium">
+                              <button 
+                                onClick={() => handleRemoveFromCart(index)}
+                                className="text-red-600 hover:text-red-900 text-sm"
+                              >
+                                Rimuovi
+                              </button>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                  
+                  <div className="mt-4 flex gap-2 flex-col sm:flex-row">
+                    <button
+                      onClick={handleCancelCheckout}
+                      disabled={isProcessing}
+                      className="px-4 py-2 bg-gray-200 text-gray-800 rounded-lg hover:bg-gray-300 transition-colors"
+                    >
+                      Svuota Carrello
+                    </button>
+                    <button
+                      onClick={handleCheckout}
+                      disabled={isProcessing || cart.items.length === 0}
+                      className="grow px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors disabled:bg-gray-400"
+                    >
+                      Completa Acquisto (€{cart.totalAmount.toFixed(2)})
+                    </button>
+                  </div>
+                </>
+              )}
+            </div>
+          )}
+          
+          {/* Form per l'aggiunta di un nuovo prodotto (se non trovato) */}
+          {!productFound && barcode && (
+            <div className="p-4 border rounded-lg bg-white shadow">
+              <h2 className="text-xl font-semibold mb-2">Prodotto non trovato</h2>
+              <p className="text-gray-600 mb-3">
+                Nessun prodotto trovato con il codice: <span className="font-medium">{barcode}</span>
+              </p>
+              <AddProductForm initialBarcode={barcode} onProductAdded={handleProductAdded} />
+            </div>
+          )}
+        </div>
       </div>
+      
+      {/* Pulsante per reset pagina */}
+      <div className="mt-8 text-center">
+        <button
+          onClick={handleReset}
+          className="px-4 py-2 bg-gray-200 text-gray-800 rounded-lg hover:bg-gray-300 transition-colors"
+        >
+          Ripristina
+        </button>
+      </div>
+      
+      {/* Finestra di checkout */}
+      {showCheckout && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
+          <div className="bg-white rounded-lg p-6 max-w-md w-full">
+            <h2 className="text-2xl font-bold mb-4">Completa l'acquisto</h2>
+            
+            <div className="mb-4">
+              <p className="text-lg font-semibold">
+                Totale: <span className="text-xl text-green-600">€{cart.totalAmount.toFixed(2)}</span>
+              </p>
+              <p className="text-gray-600">
+                {cart.itemCount} {cart.itemCount === 1 ? 'articolo' : 'articoli'}
+              </p>
+            </div>
+            
+            <div className="mb-4 max-h-60 overflow-y-auto">
+              <table className="min-w-full divide-y divide-gray-200">
+                <thead className="bg-gray-50">
+                  <tr>
+                    <th scope="col" className="px-3 py-2 text-left text-xs font-medium text-gray-500">Prodotto</th>
+                    <th scope="col" className="px-3 py-2 text-center text-xs font-medium text-gray-500">Qtà</th>
+                    <th scope="col" className="px-3 py-2 text-right text-xs font-medium text-gray-500">Totale</th>
+                  </tr>
+                </thead>
+                <tbody className="bg-white divide-y divide-gray-200">
+                  {cart.items.map((item) => (
+                    <tr key={item.product.id || item.product.barcode}>
+                      <td className="px-3 py-2 text-sm">{item.product.name}</td>
+                      <td className="px-3 py-2 text-center text-sm">{item.quantity}</td>
+                      <td className="px-3 py-2 text-right text-sm">€{item.totalPrice.toFixed(2)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+            
+            <div className="flex justify-between gap-4">
+              <button
+                onClick={handleCancelCheckout}
+                disabled={isProcessing}
+                className="flex-1 px-4 py-2 bg-gray-200 rounded-lg hover:bg-gray-300 transition-colors"
+              >
+                Annulla
+              </button>
+              <button
+                onClick={handleCheckout}
+                disabled={isProcessing}
+                className={`flex-1 px-4 py-2 rounded-lg text-white transition-colors ${
+                  isProcessing ? 'bg-gray-400' : 'bg-green-600 hover:bg-green-700'
+                }`}
+              >
+                {isProcessing ? 'Elaborazione...' : 'Conferma Pagamento'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

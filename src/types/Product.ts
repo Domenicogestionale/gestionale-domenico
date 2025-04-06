@@ -3,6 +3,7 @@ export interface Product {
   barcode: string;
   name: string;
   quantity: number;
+  price?: number;
   createdAt?: Date;
   updatedAt?: Date;
 } 
