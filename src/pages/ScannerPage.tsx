@@ -739,7 +739,7 @@ const ScannerPage = () => {
               <p className="text-gray-600 mb-3">
                 Nessun prodotto trovato con il codice: <span className="font-medium">{barcode}</span>
               </p>
-              <AddProductForm initialBarcode={barcode} onProductAdded={handleProductAdded} />
+              <AddProductForm onProductAdded={handleProductAdded} />
             </div>
           )}
         </div>
