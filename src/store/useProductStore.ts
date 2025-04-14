@@ -167,71 +167,84 @@ export const useProductStore = create<ProductState>((set, get) => ({
 
   updateProductQuantity: async (barcode: string, quantity: number, isAddition: boolean): Promise<boolean> => {
     try {
-      console.log(`[DEBUG] Aggiornamento quantità per barcode ${barcode}: ${quantity} (${isAddition ? 'aggiunta' : 'sottrazione'})`);
+      console.log(`[DEBUG] updateProductQuantity - Barcode: ${barcode}, Quantità: ${quantity}, Operazione: ${isAddition ? 'Carico' : 'Scarico'}`);
       
-      // Normalizza il barcode
       const normalizedBarcode = barcode.trim();
-      
-      // Prima cerca nella cache locale
-      const state = get();
-      const localProduct = state.products.find(p => p.barcode === normalizedBarcode);
-      
-      if (!localProduct) {
-        console.error(`[DEBUG] Prodotto non trovato nella cache: ${normalizedBarcode}`);
-        throw new Error(`Prodotto con barcode ${normalizedBarcode} non trovato`);
-      }
-      
-      // Cerca il prodotto nel database usando il barcode come campo di ricerca
+      let productDocRef = null;
+      let currentQuantity = 0;
+
+      // 1. Cerca nel database per ottenere il riferimento del documento e la quantità attuale
       const productsRef = collection(db, 'products');
-      const querySnapshot = await getDocs(productsRef);
-      let productDoc = null;
+      const querySnapshot = await getDocs(productsRef); // Potrebbe essere ottimizzato con una query diretta
       
+      let foundDoc = null;
       querySnapshot.forEach((doc) => {
         const data = doc.data();
-        if (data.barcode === normalizedBarcode) {
-          productDoc = doc;
+        // Confronto case-insensitive e trim per sicurezza
+        if (String(data.barcode).trim().toLowerCase() === normalizedBarcode.toLowerCase()) {
+          foundDoc = doc;
         }
       });
-      
-      if (!productDoc) {
-        console.error(`[DEBUG] Prodotto non trovato nel database: ${normalizedBarcode}`);
+
+      if (!foundDoc) {
+        console.error(`[DEBUG] Prodotto non trovato NEL DATABASE: ${normalizedBarcode}`);
+        // Aggiorna lo stato di errore nello store, se necessario
+        set({ error: `Prodotto con barcode ${normalizedBarcode} non trovato nel database.` });
         throw new Error(`Prodotto con barcode ${normalizedBarcode} non trovato nel database`);
       }
       
-      const currentData = productDoc.data();
-      const currentQuantity = currentData.quantity || 0;
-      
+      // Prodotto trovato nel DB
+      productDocRef = doc(db, 'products', foundDoc.id);
+      const currentData = foundDoc.data();
+      currentQuantity = currentData.quantity || 0;
+      console.log(`[DEBUG] Prodotto trovato nel DB (ID: ${foundDoc.id}). Quantità attuale: ${currentQuantity}`);
+
+      // 2. Calcola la nuova quantità
       let newQuantity;
       if (isAddition) {
         newQuantity = currentQuantity + quantity;
       } else {
         if (currentQuantity < quantity) {
-          throw new Error(`Quantità insufficiente. Disponibili: ${currentQuantity}`);
+          console.warn(`[DEBUG] Quantità insufficiente per ${normalizedBarcode}. Disponibili: ${currentQuantity}, Richiesti: ${quantity}`);
+          set({ error: `Quantità insufficiente per ${normalizedBarcode}. Disponibili: ${currentQuantity}` });
+          throw new Error(`Quantità insufficiente per ${normalizedBarcode}. Disponibili: ${currentQuantity}`);
         }
         newQuantity = currentQuantity - quantity;
       }
-      
-      // Aggiorna il documento nel database
-      await updateDoc(doc(db, 'products', productDoc.id), {
+      console.log(`[DEBUG] Nuova quantità calcolata: ${newQuantity}`);
+
+      // 3. Aggiorna il documento nel database
+      const updateTimestamp = new Date();
+      await updateDoc(productDocRef, {
         quantity: newQuantity,
-        updatedAt: new Date()
+        updatedAt: updateTimestamp
       });
-      
-      // Aggiorna la cache locale
-      set(state => ({
-        products: state.products.map(p => 
-          p.barcode === normalizedBarcode 
-            ? { ...p, quantity: newQuantity, updatedAt: new Date() }
+      console.log(`[DEBUG] Database aggiornato con successo per ID: ${foundDoc.id}`);
+
+      // 4. Aggiorna la cache locale (Zustand store)
+      set(state => {
+        const updatedProducts = state.products.map(p => 
+          p.id === foundDoc.id // Usa l'ID del documento trovato per l'aggiornamento
+            ? { ...p, quantity: newQuantity, updatedAt: updateTimestamp }
             : p
-        )
-      }));
+        );
+        // Se il prodotto non era nella cache (improbabile ma possibile), aggiungilo
+        if (!state.products.some(p => p.id === foundDoc.id)) {
+            console.warn(`[DEBUG] Prodotto ${foundDoc.id} non era nella cache, lo aggiungo.`);
+            updatedProducts.push({ id: foundDoc.id, ...currentData, quantity: newQuantity, updatedAt: updateTimestamp } as Product);
+        }
+        return { products: updatedProducts, error: null }; // Resetta errore in caso di successo
+      });
+      console.log(`[DEBUG] Cache locale aggiornata.`);
       
-      console.log(`[DEBUG] Quantità aggiornata con successo per ${normalizedBarcode}: ${newQuantity}`);
-      return true;
+      return true; // Operazione completata con successo
+
     } catch (error) {
-      console.error("[DEBUG] Errore durante l'aggiornamento della quantità:", error);
-      handleFirebaseError(error, (errorMsg) => set({ error: errorMsg }));
-      throw error;
+      console.error("[DEBUG] Errore finale in updateProductQuantity:", error);
+      // Assicurati che handleFirebaseError venga chiamato o che l'errore venga gestito
+      handleFirebaseError(error, (errorMsg) => set({ error: errorMsg })); 
+      // Rilancia l'errore per farlo gestire da chi ha chiamato la funzione (es. handleCheckout)
+      throw error; 
     }
   },
 
