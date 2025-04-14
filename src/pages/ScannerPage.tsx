@@ -734,10 +734,12 @@ const ScannerPage = () => {
           
           {/* Form per l'aggiunta di un nuovo prodotto (se non trovato) */}
           {!productFound && barcode && (
-            <div className="p-4 border rounded-lg bg-white shadow">
-              <h2 className="text-xl font-semibold mb-2">Prodotto non trovato</h2>
-              <p className="text-gray-600 mb-3">
-                Nessun prodotto trovato con il codice: <span className="font-medium">{barcode}</span>
+            <div className="p-4 border-t-4 border-orange-400 rounded-b-lg bg-white shadow">
+              <h2 className="text-xl font-semibold mb-2 text-orange-700">Prodotto Non Trovato</h2>
+              <p className="text-gray-600 mb-4">
+                Il codice a barre <span className="font-medium">{barcode}</span> non è presente nel tuo inventario.
+                <br />
+                Compila il modulo qui sotto per aggiungerlo.
               </p>
               <AddProductForm onProductAdded={handleProductAdded} />
             </div>

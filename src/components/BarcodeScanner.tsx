@@ -57,8 +57,14 @@ const BarcodeScanner = ({ onProductScanned }: BarcodeScannerProps) => {
           }
 
           // Ferma lo scanner durante il cooldown
-          await html5QrCode.stop();
-          setIsScanning(false);
+          try {
+            await html5QrCode.stop();
+            setIsScanning(false);
+          } catch (stopError) {
+            console.error('Errore durante lo stop dello scanner:', stopError);
+            setErrorMessage('Errore fermando lo scanner.');
+            // Prova comunque a procedere con il cooldown e il riavvio
+          }
           
           // Imposta il cooldown di 3 secondi
           setIsScanCooldown(true);
@@ -80,8 +86,11 @@ const BarcodeScanner = ({ onProductScanned }: BarcodeScannerProps) => {
                   cooldownRef.current = null;
                 }
                 setIsScanCooldown(false);
-                // Riavvia lo scanner dopo il cooldown
-                startScanner();
+                // Riavvia lo scanner dopo il cooldown in modo sicuro
+                startScanner().catch(startErr => {
+                  console.error('Errore riavviando lo scanner dopo cooldown:', startErr);
+                  setErrorMessage('Errore riavviando lo scanner.');
+                });
                 return 0;
               }
               return prev - 1;
@@ -90,55 +99,85 @@ const BarcodeScanner = ({ onProductScanned }: BarcodeScannerProps) => {
         } catch (error) {
           console.error('Errore durante la ricerca del prodotto:', error);
           setErrorMessage('Errore durante la ricerca del prodotto');
-          // In caso di errore, riavvia lo scanner dopo il cooldown
+          // In caso di errore, prova a riavviare lo scanner dopo il cooldown
           setTimeout(() => {
             setIsScanCooldown(false);
-            startScanner();
+            startScanner().catch(startErr => {
+              console.error('Errore riavviando lo scanner dopo errore:', startErr);
+              setErrorMessage('Errore riavviando lo scanner.');
+            });
           }, 3000);
         }
       };
 
-      await html5QrCode.start(
-        { facingMode: "environment" },
-        { 
-          fps: 10, 
-          qrbox: { width: 250, height: 150 },
-          aspectRatio: 1.0,
-          disableFlip: true
-        },
-        qrCodeSuccessCallback,
-        (errorMessage) => {
-          console.log(errorMessage);
+      try {
+        await html5QrCode.start(
+          { facingMode: "environment" },
+          { 
+            fps: 10, 
+            qrbox: { width: 250, height: 150 },
+            aspectRatio: 1.0,
+            disableFlip: true
+          },
+          qrCodeSuccessCallback,
+          (errorMessage) => {
+            // Non trattare gli errori di scansione comuni come errori bloccanti
+            if (!errorMessage.includes('No QR code found')) {
+              console.log('Messaggio scanner:', errorMessage);
+            }
+          }
+        );
+        setIsScanning(true);
+      } catch (startError) {
+        console.error('Errore avviando lo scanner:', startError);
+        setErrorMessage(`Errore fotocamera: ${startError.message}`);
+        setIsScanning(false);
+        // Prova a fermare lo scanner se l'avvio fallisce
+        if (html5QrCode) {
+          stopScanner().catch(stopErr => console.error('Errore fermando dopo avvio fallito:', stopErr));
         }
-      );
-      
-      setIsScanning(true);
-    } catch (err) {
-      setErrorMessage(`Errore fotocamera: ${err.message}`);
-      setIsScanning(false);
-      if (html5QrCode) {
-        await stopScanner();
       }
+    } catch (err) {
+      // Questo catch gestisce errori nella creazione di Html5Qrcode
+      console.error('Errore inizializzazione Html5Qrcode:', err);
+      setErrorMessage(`Errore scanner: ${err.message}`);
+      setIsScanning(false);
     }
   };
 
   const stopScanner = async () => {
+    console.log('Fermando lo scanner...');
     try {
       if (cooldownRef.current) {
         clearInterval(cooldownRef.current);
         cooldownRef.current = null;
+        console.log('Cooldown timer fermato.');
       }
       if (html5QrCode) {
-        await html5QrCode.stop();
-        html5QrCode = null;
-        setIsScanning(false);
-        setIsScanCooldown(false);
-        setRemainingCooldown(0);
-        setErrorMessage('');
+        const scannerState = html5QrCode.getState();
+        console.log('Stato scanner prima dello stop:', scannerState);
+        // Verifica se lo scanner è effettivamente in scansione prima di fermarlo
+        if (scannerState === 2 /* SCANNING */) {
+          await html5QrCode.stop();
+          console.log('Scanner fermato con successo.');
+        } else {
+          console.log('Scanner non era in stato SCANNING, stop non necessario o già eseguito.');
+        }
+        html5QrCode = null; // Resetta riferimento solo dopo stop riuscito o se non necessario
+      } else {
+        console.log('Nessuna istanza di html5QrCode da fermare.');
       }
     } catch (err) {
-      console.error('Errore fermando lo scanner:', err);
+      console.error('Errore critico fermando lo scanner:', err);
       setErrorMessage('Errore fermando lo scanner');
+      // Non resettare isScanning qui, potrebbe essere ancora attivo o bloccato
+    } finally {
+      // Resetta sempre gli stati locali associati allo scanning
+      setIsScanning(false);
+      setIsScanCooldown(false);
+      setRemainingCooldown(0);
+      setErrorMessage(''); // Resetta messaggio errore solo se lo stop va a buon fine o non c'era nulla da fermare?
+      console.log('Stati scanner resettati dopo stop/tentativo di stop.');
     }
   };
 
