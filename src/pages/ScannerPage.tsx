@@ -26,6 +26,9 @@ const ScannerPage = () => {
   const [cart, setCart] = useState<Cart>({ items: [], totalAmount: 0, itemCount: 0 });
   const [showCheckout, setShowCheckout] = useState<boolean>(false);
   
+  // Stato per aggiustamento manuale del totale
+  const [manualAdjustment, setManualAdjustment] = useState<number>(0);
+  
   // Ogni volta che cambia il carrello, logga il suo stato
   useEffect(() => {
     console.log('[DEBUG CART] Carrello aggiornato:', JSON.stringify(cart));
@@ -393,8 +396,8 @@ const ScannerPage = () => {
 
   // Gestisci il cambio di quantità
   const handleQuantityChange = (newQuantity: number) => {
-    // Assicuriamoci che la quantità sia sempre un numero valido
-    const validQuantity = Math.max(1, Math.floor(Number(newQuantity)));
+    // Assicura che la quantità sia sempre almeno 1
+    const validQuantity = Math.max(1, Math.floor(newQuantity));
     setQuantityToUpdate(validQuantity);
     
     // Attiva il feedback visivo per il cambio quantità
@@ -403,6 +406,24 @@ const ScannerPage = () => {
     
     console.log(`Quantità cambiata a: ${validQuantity} in modalità: ${operationMode}`);
   };
+
+  // Passo 4.1: Aggiunte funzioni handler per aggiustamento manuale
+  const handleManualAdjustment = (amount: number | string) => {
+    const value = typeof amount === 'string' ? parseFloat(amount) : amount;
+    if (!isNaN(value)) {
+      setManualAdjustment(prev => prev + value);
+    }
+  };
+
+  const handleSetManualAdjustment = (amount: number | string) => {
+    const value = typeof amount === 'string' ? parseFloat(amount) : amount;
+    if (!isNaN(value)) {
+       setManualAdjustment(value);
+    } else if (typeof amount === 'string' && amount.trim() === '') {
+       // Se l'input viene cancellato, azzera l'aggiustamento
+       setManualAdjustment(0);
+    }
+  }
 
   // Gestisce l'input manuale del codice a barre
   const handleScan = async () => {
@@ -422,35 +443,42 @@ const ScannerPage = () => {
 
   // Callback usato dal componente BarcodeScanner quando trova un prodotto
   const onProductFound = (product: Product | null, scannedBarcode: string) => {
-    console.log('[DEBUG] Prodotto trovato:', product);
-    console.log('[DEBUG] Modalità operativa:', operationMode);
-    console.log('[DEBUG] Numero elementi nel carrello:', cart.items.length);
-    
+    console.log('[DEBUG] onProductFound - Inizio. Prodotto:', product, 'Barcode:', scannedBarcode);
+    console.log('[DEBUG] onProductFound - Modalità operativa:', operationMode);
+
     if (!product) {
-      console.log('[DEBUG] Nessun prodotto trovato per il barcode:', scannedBarcode);
-      return;
+      console.log('[DEBUG] onProductFound - Prodotto non trovato per barcode:', scannedBarcode);
+      // CORREZIONE: Imposta productFound a null E aggiorna il barcode
+      // in modo che la condizione !productFound && barcode diventi vera
+      setProductFound(null);
+      setBarcode(scannedBarcode); // <-- Riga chiave per mostrare il form
+      console.log('[DEBUG] onProductFound - Stato aggiornato: productFound=null, barcode=', scannedBarcode);
+      return; // Esce dopo aver impostato lo stato corretto per mostrare il form
     }
-    
-    // Mantieni il prodotto precedentemente scansionato visualizzato 
-    // ma aggiorna il barcode attuale
+
+    // Se il prodotto è stato trovato...
+    console.log('[DEBUG] onProductFound - Prodotto trovato:', product.name);
     setProductFound(product);
-    setBarcode(scannedBarcode);
-    
-    // Se troviamo il prodotto, gestiamo in base alla modalità selezionata
+    setBarcode(scannedBarcode); // Aggiorna anche qui per consistenza
+
+    // Gestione basata sulla modalità... (codice esistente)
     if (operationMode === 'carico') {
-      // In modalità carico, aggiorna la quantità
+      console.log('[DEBUG] onProductFound - Modalità carico, chiamo handleProductUpdate');
       handleProductUpdate(product, quantityToUpdate, 'carico');
     } else if (operationMode === 'scarico') {
-      // In modalità scarico, verifica la disponibilità e aggiorna
+      console.log('[DEBUG] onProductFound - Modalità scarico');
       if (product.quantity >= quantityToUpdate) {
+        console.log('[DEBUG] onProductFound - Quantità sufficiente, chiamo handleProductUpdate');
         handleProductUpdate(product, quantityToUpdate, 'scarico');
       } else {
+        console.warn(`[DEBUG] onProductFound - Quantità insufficiente per ${product.name}. Disponibili: ${product.quantity}`);
         alert(`Quantità insufficiente per ${product.name}. Disponibili: ${product.quantity}`);
       }
     } else if (operationMode === 'cassa') {
-      // In modalità cassa, aggiungi automaticamente al carrello
-      console.log('[DEBUG] Modalità cassa: aggiungo automaticamente al carrello');
+      console.log('[DEBUG] onProductFound - Modalità cassa, chiamo handleAddToCart');
       handleAddToCart(product, quantityToUpdate);
+    } else {
+       console.log('[DEBUG] onProductFound - Modalità neutral o non gestita, solo visualizzazione');
     }
   };
 
@@ -640,8 +668,13 @@ const ScannerPage = () => {
                 <h2 className="text-xl font-semibold">Carrello</h2>
                 <div className="text-right">
                   <p className="font-bold text-lg text-purple-700">
-                    Totale: €{cart.totalAmount.toFixed(2)}
+                    Totale: €{(cart.totalAmount + manualAdjustment).toFixed(2)}
                   </p>
+                  {manualAdjustment !== 0 && (
+                     <p className="text-xs text-gray-500">
+                       (Subtotale: €{cart.totalAmount.toFixed(2)}, Aggiust.: €{manualAdjustment.toFixed(2)})
+                     </p>
+                  )}
                   <p className="text-sm text-gray-600">
                     {cart.itemCount} {cart.itemCount === 1 ? 'articolo' : 'articoli'}
                   </p>
@@ -711,6 +744,56 @@ const ScannerPage = () => {
                     </table>
                   </div>
                   
+                  {/* Passo 4.2: Aggiunta sezione Aggiustamento Manuale */}
+                  <div className="mt-4 pt-4 border-t border-gray-200">
+                    <h3 className="text-md font-semibold mb-2">Aggiustamento Manuale Totale</h3>
+                    <div className="flex flex-wrap gap-2 mb-3">
+                      {[1, 2, 5, 10].map(val => (
+                        <button
+                          key={`add-${val}`}
+                          onClick={() => handleManualAdjustment(val)}
+                          className="px-2 py-1 bg-green-100 text-green-700 text-xs rounded hover:bg-green-200"
+                        >
+                          +{val}€
+                        </button>
+                      ))}
+                      {[-1, -2, -5, -10].map(val => (
+                         <button
+                           key={`sub-${val}`}
+                           onClick={() => handleManualAdjustment(val)}
+                           className="px-2 py-1 bg-red-100 text-red-700 text-xs rounded hover:bg-red-200"
+                         >
+                           {val}€
+                         </button>
+                      ))}
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <label htmlFor="custom-adjustment" className="text-sm">Importo:</label>
+                      <input
+                        type="number"
+                        id="custom-adjustment"
+                        step="0.01"
+                        value={manualAdjustment === 0 ? '' : manualAdjustment.toFixed(2)} // Mostra vuoto se 0
+                        onChange={(e) => handleSetManualAdjustment(e.target.value)}
+                        placeholder="Es: 1.30 o -0.50"
+                        className="w-28 px-2 py-1 border rounded text-sm"
+                      />
+                       <button
+                         onClick={() => setManualAdjustment(0)}
+                         className="px-2 py-1 bg-gray-200 text-gray-700 text-xs rounded hover:bg-gray-300"
+                         title="Azzera aggiustamento"
+                       >
+                         Azzera
+                       </button>
+                    </div>
+                    {manualAdjustment !== 0 && (
+                      <p className="text-xs text-gray-500 mt-1">
+                        Aggiustamento corrente: €{manualAdjustment.toFixed(2)}
+                      </p>
+                    )}
+                  </div>
+                  {/* Fine Sezione Aggiustamento Manuale */}
+
                   <div className="mt-4 flex gap-2 flex-col sm:flex-row">
                     <button
                       onClick={handleCancelCheckout}
@@ -724,7 +807,7 @@ const ScannerPage = () => {
                       disabled={isProcessing || cart.items.length === 0}
                       className="grow px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors disabled:bg-gray-400"
                     >
-                      Completa Acquisto (€{cart.totalAmount.toFixed(2)})
+                      Completa Acquisto (€{(cart.totalAmount + manualAdjustment).toFixed(2)})
                     </button>
                   </div>
                 </>
@@ -765,9 +848,15 @@ const ScannerPage = () => {
             
             <div className="mb-4">
               <p className="text-lg font-semibold">
-                Totale: <span className="text-xl text-green-600">€{cart.totalAmount.toFixed(2)}</span>
+                Totale Finale: <span className="text-xl text-green-600">€{(cart.totalAmount + manualAdjustment).toFixed(2)}</span>
               </p>
-              <p className="text-gray-600">
+              {manualAdjustment !== 0 && (
+                 <p className="text-sm text-gray-500">
+                   Subtotale Articoli: €{cart.totalAmount.toFixed(2)} <br />
+                   Aggiustamento Manuale: €{manualAdjustment.toFixed(2)}
+                 </p>
+              )}
+              <p className="text-gray-600 mt-1">
                 {cart.itemCount} {cart.itemCount === 1 ? 'articolo' : 'articoli'}
               </p>
             </div>
